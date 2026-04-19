@@ -62,16 +62,11 @@ def guess_sector(name):
     if any(x in name_up for x in ["ASTREA", "BOND", "SBDEC"]): return "Fixed Income"
     return "Equities (Unclassified)"
 
-# --- NEW: SMART ALIAS RESOLUTION ENGINE ---
 def resolve_intel(raw_name):
-    """Maps messy legal names from PDFs to clean tickers using fuzzy keyword matching."""
     name_up = str(raw_name).upper()
-    
-    # 1. Try Exact Match
     if name_up in MASTER_INTEL:
         return MASTER_INTEL[name_up], name_up
         
-    # 2. Try Alias/Keyword Match for tricky legal names
     ALIAS_MAP = {
         "OCBC": ["OVERSEA-CHINESE", "OVERSEA CHINESE", "OCBC"],
         "UOB": ["UNITED OVERSEAS", "UOB"],
@@ -87,7 +82,6 @@ def resolve_intel(raw_name):
         if any(alias in name_up for alias in aliases):
             return MASTER_INTEL[clean_name], clean_name
             
-    # 3. Safe Fallback
     return {"Rate": 0.0, "PB": 1.0, "Ticker": None, "Sector": guess_sector(name_up)}, name_up
 
 def extract_pdf(file):
@@ -101,8 +95,12 @@ def extract_pdf(file):
                     if len(row) < 3: continue
                     
                     raw_name = row[0].upper()
-                    ignore_keywords = ["SECURITY", "BALANCE", "DATE", "TOTAL", "PAGE", "STATEMENT", "PORTFOLIO"]
+                    
+                    ignore_keywords = ["SECURITY", "BALANCE", "DATE", "TOTAL", "PAGE", "STATEMENT", "PORTFOLIO", "SUB-TOTAL"]
                     if any(x in raw_name for x in ignore_keywords): 
+                        continue
+                    
+                    if re.match(r'^\d{1,2}[\s\-/]+(?:[A-Z]{3}|\d{1,2})[\s\-/]+\d{2,4}', raw_name):
                         continue
                     
                     try:
@@ -113,13 +111,12 @@ def extract_pdf(file):
                             
                             if qty < 1 or mkt <= 0: continue
                             
-                            # APPLY SMART RESOLUTION
                             intel, clean_name = resolve_intel(raw_name)
                             
                             if clean_name in seen: continue
                                 
                             data.append({
-                                "Security": clean_name, # Use the clean name for the UI
+                                "Security": clean_name, 
                                 "Sector": intel.get("Sector", guess_sector(clean_name)), 
                                 "Quantity": qty, 
                                 "AUM (SGD)": mkt, 
@@ -139,8 +136,24 @@ def color_returns(val):
     return ''
 
 # --- 3. DASHBOARD UI ---
-st.sidebar.header("🏦 CLP WEALTH COMMAND CENTER")
+st.sidebar.header("🏦 CLP COMMAND CENTER")
 uploaded_file = st.sidebar.file_uploader("Step 1: Upload Portfolio PDF", type="pdf")
+
+with st.sidebar.expander("⚙️ App Maintenance Guide"):
+    st.markdown("""
+    **The Golden Rule of New Stocks**
+    
+    If you purchase a brand new asset that you have never owned before, the app will automatically calculate its AUM, but it will *hide* it from the Market Benchmark and Audit tabs to prevent crashes.
+    
+    **To unlock full auditing for a new stock:**
+    1. Open `app.py` in your GitHub repository.
+    2. Locate the `MASTER_INTEL` list near the top of the code.
+    3. Add your new stock name and its `.SI` ticker symbol to the list. 
+    *(Example: `"PANUNITED": {"Rate": 0.0, "PB": 1.0, "Ticker": "P52.SI", "Sector": "Industrials"}`)*
+    4. Click **Commit changes**. Streamlit will instantly refresh your live app!
+    """)
+st.sidebar.markdown("---")
+
 t1, t2, t3, t4 = st.tabs(["📊 Asset Discovery", "📈 Market Benchmark", "📂 Verification Hub", "📜 Strategic Advisory"])
 
 if uploaded_file:
@@ -150,24 +163,52 @@ if uploaded_file:
         sel_sects = st.sidebar.multiselect("Filter Analysis Universe", all_sects, default=all_sects)
         df = df_raw[df_raw['Sector'].isin(sel_sects)].copy()
         
+        # --- ENHANCED METRICS & LABEL ENGINE ---
+        total_aum = df['AUM (SGD)'].sum()
+        
         df["Annual Dividend (SGD)"] = (df["Quantity"] * df["DPS"]).round(2)
+        total_inc = df['Annual Dividend (SGD)'].sum()
+        
         df["Dividend Yield (%)"] = (df["Annual Dividend (SGD)"] / df["AUM (SGD)"] * 100).round(2)
         
+        # Calculate strict mathematical weights
+        df["%Portfolio"] = (df["AUM (SGD)"] / total_aum * 100).round(2) if total_aum > 0 else 0
+        df["%Income"] = (df["Annual Dividend (SGD)"] / total_inc * 100).round(2) if total_inc > 0 else 0
+        
+        # Bake the weights directly into the display labels using 1 decimal place for neatness
+        df["Alloc_Label"] = df.apply(lambda r: f"{r['Security']} ({r['%Portfolio']:.1f}%)", axis=1)
+        df["Inc_Label"] = df.apply(lambda r: f"{r['Security']} ({r['%Income']:.1f}%)", axis=1)
+        
         m1, m2, m3 = st.columns(3)
-        m1.metric("Total AUM", f"S${df['AUM (SGD)'].sum():,.2f}")
-        m2.metric("Annualized Income", f"S${df['Annual Dividend (SGD)'].sum():,.2f}")
-        m3.metric("Portfolio Yield", f"{(df['Annual Dividend (SGD)'].sum()/df['AUM (SGD)'].sum()*100):.2f}%" if df['AUM (SGD)'].sum() > 0 else "0.00%")
+        m1.metric("Total AUM", f"S${total_aum:,.2f}")
+        m2.metric("Annualized Income", f"S${total_inc:,.2f}")
+        m3.metric("Portfolio Yield", f"{(total_inc/total_aum*100):.2f}%" if total_aum > 0 else "0.00%")
 
         with t1:
-            st.markdown("### 🗺️ Portfolio Diversification Structure")
             c1, c2 = st.columns(2)
-            c1.plotly_chart(px.treemap(df, path=['Sector', 'Security'], values='AUM (SGD)', title="Capital Allocation", color='Sector'), use_container_width=True)
-            c2.plotly_chart(px.sunburst(df, path=['Sector', 'Security'], values='Annual Dividend (SGD)', title="Income Stream", color='Sector'), use_container_width=True)
-            st.plotly_chart(px.scatter(df[df['Sector']!='Fixed Income'], x="P/B Ratio", y="Dividend Yield (%)", size="AUM (SGD)", color="Sector", hover_name="Security", template="plotly_dark", height=500), use_container_width=True)
+            
+            with c1:
+                st.markdown("<h4 style='text-align: center;'>Capital Allocation</h4>", unsafe_allow_html=True)
+                # Map the Treemap to use the new 'Alloc_Label'
+                fig_tree = px.treemap(df, path=['Sector', 'Alloc_Label'], values='AUM (SGD)', color='Sector')
+                fig_tree.update_layout(margin=dict(t=10, l=10, r=10, b=10)) 
+                st.plotly_chart(fig_tree, use_container_width=True)
+                
+            with c2:
+                st.markdown("<h4 style='text-align: center;'>Income Stream</h4>", unsafe_allow_html=True)
+                # Map the Sunburst to use the new 'Inc_Label'
+                fig_sun = px.sunburst(df, path=['Sector', 'Inc_Label'], values='Annual Dividend (SGD)', color='Sector')
+                fig_sun.update_layout(margin=dict(t=10, l=10, r=10, b=10))
+                st.plotly_chart(fig_sun, use_container_width=True)
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("<h4 style='text-align: center;'>Asset Efficiency Matrix: Valuation vs. Yield</h4>", unsafe_allow_html=True)
+            fig_scatter = px.scatter(df[df['Sector']!='Fixed Income'], x="P/B Ratio", y="Dividend Yield (%)", size="AUM (SGD)", color="Sector", hover_name="Security", template="plotly_dark", height=500)
+            fig_scatter.update_layout(margin=dict(t=20, l=10, r=10, b=10))
+            st.plotly_chart(fig_scatter, use_container_width=True)
 
         with t2:
             st.markdown("### 📈 Total Return vs STI Benchmark")
-            # The dropdown will now correctly include OCBC because its ticker was resolved
             eligible = df[df['Ticker'].notnull()]['Security'].unique()
             
             if len(eligible) > 0:
@@ -191,7 +232,7 @@ if uploaded_file:
                         fig.add_trace(go.Scatter(x=sti_norm.index, y=sti_norm, name="STI Benchmark", line=dict(color='#95A5A6', dash='dot')))
                         st.plotly_chart(fig, use_container_width=True)
             else:
-                st.warning("No benchmarkable assets found in the current selection (missing ticker symbols).")
+                st.warning("No benchmarkable assets found in the current selection.")
 
         with t3:
             for s in sorted(df['Sector'].unique()):
@@ -202,8 +243,8 @@ if uploaded_file:
                     with col_chart:
                         st.plotly_chart(px.bar(sdf, x='Security', y='AUM (SGD)', color='Dividend Yield (%)', color_continuous_scale='Blues'), use_container_width=True)
                     with col_table:
-                        st.dataframe(sdf[['S/N','Security','Quantity','DPS','Annual Dividend (SGD)','Dividend Yield (%)','AUM (SGD)']].style.format({
-                            'DPS': '{:.2f}', 'Annual Dividend (SGD)': '{:,.2f}', 'Dividend Yield (%)': '{:.2f}%', 'AUM (SGD)': '{:,.2f}'
+                        st.dataframe(sdf[['S/N','Security','Quantity','DPS','Annual Dividend (SGD)','Dividend Yield (%)','%Portfolio','AUM (SGD)']].style.format({
+                            'DPS': '{:.2f}', 'Annual Dividend (SGD)': '{:,.2f}', 'Dividend Yield (%)': '{:.2f}%', '%Portfolio': '{:.2f}%', 'AUM (SGD)': '{:,.2f}'
                         }).background_gradient(subset=['Dividend Yield (%)'], cmap='Blues', vmin=0), hide_index=True, use_container_width=True)
 
         with t4:
@@ -280,6 +321,8 @@ if uploaded_file:
                 else:
                     st.success("No wealth destroying assets detected!")
 
+            st.caption("*High Performers and Suspects are selected based on their last 5-Year Total Return.*")
+
             st.markdown("---")
 
             st.markdown("### ⚖️ Portfolio Rebalance Simulator")
@@ -298,7 +341,7 @@ if uploaded_file:
                 if not sim_sell or not sim_buy:
                     st.warning("⚠️ Please select at least one asset to sell and one to buy to run the simulation.")
                 else:
-                    curr_aum = df['AUM (SGD)'].sum()
+                    curr_aum = total_aum
                     curr_inc = df['Annual Dividend (SGD)'].sum()
                     curr_yield = (curr_inc / curr_aum) * 100 if curr_aum > 0 else 0
                     
@@ -340,4 +383,3 @@ if uploaded_file:
 
 else:
     st.info("👋 Welcome. Please upload your CDP PDF or similar portfolio statement to begin.")
-       
