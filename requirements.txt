@@ -4,3 +4,4 @@ pdfplumber
 plotly
 yfinance
 numpy
+matplotlib
