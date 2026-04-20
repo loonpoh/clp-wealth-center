@@ -65,12 +65,75 @@ section[data-testid="stSidebar"] label { color: #8fa8cc !important; font-size: 0
 .feat-title { font-weight: 600; font-size: 0.92rem; color: #0d2240; margin-bottom: 6px; }
 .feat-desc { font-size: 0.8rem; color: #6b7f9e; line-height: 1.4; }
 .hide-delta [data-testid="stMetricDelta"] svg { display: none; }
+
+/* ── Tab navigation ─────────────────────────────────────────── */
+div[data-baseweb="tab-list"] {
+    background: linear-gradient(180deg, #eef3fb 0%, #e8eef8 100%);
+    border-radius: 12px 12px 0 0;
+    padding: 6px 6px 0 6px;
+    gap: 2px;
+}
+button[data-baseweb="tab"] {
+    background: transparent !important;
+    border-radius: 8px 8px 0 0 !important;
+    color: #6b7f9e !important;
+    font-size: 0.81rem !important;
+    font-weight: 500 !important;
+    padding: 8px 15px 10px 15px !important;
+    white-space: nowrap;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+button[data-baseweb="tab"]:hover {
+    background: rgba(240, 180, 41, 0.10) !important;
+    color: #0d2240 !important;
+}
+button[data-baseweb="tab"][aria-selected="true"] {
+    background: white !important;
+    color: #0d2240 !important;
+    font-weight: 700 !important;
+}
+div[data-baseweb="tab-highlight"] {
+    background-color: #f0b429 !important;
+    height: 3px !important;
+    border-radius: 3px 3px 0 0;
+}
+div[data-baseweb="tab-border"] {
+    background: #c8d8ec !important;
+    height: 1px !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
 # --- 3. ASSET REGISTRY ---
+# _DPS_AS_OF: the fiscal year from which all Rate values were sourced.
+# UPDATE this string whenever you refresh any Rate value.
+_DPS_AS_OF = "FY 2024"
+
+# Per-holding caveats shown as warnings throughout the app.
+# Add an entry here whenever a Rate requires user attention.
+DPS_NOTES = {
+    "DBS": (
+        "Rate updated to S$2.22 (FY 2024 ordinary only). "
+        "DBS also pays a recurring S$0.50/share special capital return — "
+        "add it back to Rate if you wish to include it in income projections."
+    ),
+    "HPH TRUST USD": (
+        "Distributions are paid in USD, not SGD. "
+        "Rate 0.02 is used here as SGD — cross-check against the prevailing USD/SGD rate "
+        "and adjust Rate to the SGD-equivalent for accurate income figures."
+    ),
+    "KEPPEL": (
+        "Keppel Corp completed a major restructuring in 2023. "
+        "Verify Rate against the latest post-restructuring annual report DPS."
+    ),
+    "MAPLETREE LOG TR": (
+        "Mapletree Logistics has been reducing DPU in recent quarters due to rising costs. "
+        "Verify Rate against the latest declared DPU before relying on income projections."
+    ),
+}
+
 MASTER_INTEL = {
-    "DBS": {"Rate": 3.24, "PB": 1.55, "Ticker": "D05.SI", "Sector": "Financial Services"},
+    "DBS": {"Rate": 3.24, "PB": 2.34, "Ticker": "D05.SI", "Sector": "Financial Services"},
     "UOB": {"Rate": 1.70, "PB": 1.18, "Ticker": "U11.SI", "Sector": "Financial Services"},
     "OCBC": {"Rate": 0.86, "PB": 1.10, "Ticker": "O39.SI", "Sector": "Financial Services"},
     "SINGTEL": {"Rate": 0.16, "PB": 1.32, "Ticker": "Z74.SI", "Sector": "Telecommunications"},
@@ -121,9 +184,12 @@ def guess_sector(name):
     return "Equities (Unclassified)"
 
 def resolve_intel(raw_name):
+    """Returns (intel_dict, canonical_name, is_known).
+    is_known=False means the stock was not found in MASTER_INTEL or ALIAS_MAP.
+    """
     name_up = str(raw_name).upper()
     if name_up in MASTER_INTEL:
-        return MASTER_INTEL[name_up], name_up
+        return MASTER_INTEL[name_up], name_up, True
     ALIAS_MAP = {
         "OCBC": ["OVERSEA-CHINESE", "OVERSEA CHINESE", "OCBC"],
         "UOB": ["UNITED OVERSEAS", "UOB"],
@@ -136,8 +202,8 @@ def resolve_intel(raw_name):
     }
     for clean_name, aliases in ALIAS_MAP.items():
         if any(alias in name_up for alias in aliases):
-            return MASTER_INTEL[clean_name], clean_name
-    return {"Rate": 0.0, "PB": 1.0, "Ticker": None, "Sector": guess_sector(name_up)}, name_up
+            return MASTER_INTEL[clean_name], clean_name, True
+    return {"Rate": 0.0, "PB": 1.0, "Ticker": None, "Sector": guess_sector(name_up)}, name_up, False
 
 def extract_pdf(file):
     data, seen = [], set()
@@ -155,11 +221,11 @@ def extract_pdf(file):
                         if len(numbers) >= 2:
                             qty, mkt = numbers[0], numbers[-1]
                             if qty < 1 or mkt <= 0: continue
-                            intel, clean_name = resolve_intel(raw_name)
+                            intel, clean_name, is_known = resolve_intel(raw_name)
                             if clean_name in seen: continue
                             data.append({"Security": clean_name, "Sector": intel.get("Sector", guess_sector(clean_name)),
                                          "Quantity": qty, "AUM (SGD)": mkt, "DPS": intel["Rate"],
-                                         "P/B Ratio": intel["PB"], "Ticker": intel["Ticker"]})
+                                         "P/B Ratio": intel["PB"], "Ticker": intel["Ticker"], "Known": is_known})
                             seen.add(clean_name)
                     except Exception:
                         continue
@@ -256,6 +322,29 @@ def project_dividends(div_series, annual_income_sgd, n_months=12):
             projections.append((proj_date, income_per_payment))
 
     return projections
+
+def project_portfolio_growth(current_aum, annual_savings, total_return, dividend_yield, n_years, reinvest_dividends):
+    """
+    Project AUM and income year by year.
+    total_return / dividend_yield are decimals (e.g. 0.07, 0.047).
+    When reinvesting, dividends compound into AUM (total return applied to full AUM).
+    When not reinvesting, only price appreciation grows AUM.
+    """
+    price_appreciation = max(0.0, total_return - dividend_yield)
+    aum = float(current_aum)
+    rows = []
+    for y in range(n_years + 1):
+        income = aum * dividend_yield
+        rows.append({
+            'Year': y,
+            'AUM (SGD)': round(aum, 0),
+            'Annual Income (SGD)': round(income, 0),
+            'Monthly Income (SGD)': round(income / 12, 0),
+        })
+        if y < n_years:
+            growth_rate = total_return if reinvest_dividends else price_appreciation
+            aum = max(0.0, aum * (1 + growth_rate) + annual_savings)
+    return rows
 
 @st.cache_data(ttl=3600)
 def fetch_prices_batch(tickers_str, period="2y"):
@@ -407,6 +496,84 @@ def load_benchmark(ticker, years):
     h_s = yf.download("^STI", start=start, end=datetime.now(), auto_adjust=True, progress=False)
     return h_a, h_s
 
+CRISIS_SCENARIOS = {
+    "COVID Crash 2020": {
+        "start": "2020-02-19", "end": "2020-03-23",
+        "desc": "COVID-19 pandemic selloff — 33-day crash",
+        "sti_drop": -0.305,
+    },
+    "GFC 2008–09": {
+        "start": "2007-10-09", "end": "2009-03-09",
+        "desc": "Global Financial Crisis — peak to trough (~17 months)",
+        "sti_drop": -0.617,
+    },
+    "2022 Rate Hike Cycle": {
+        "start": "2022-01-03", "end": "2022-10-31",
+        "desc": "Aggressive Fed rate hike cycle — REIT and bond selloff",
+        "sti_drop": -0.118,
+    },
+    "Asia Financial Crisis 1997–98": {
+        "start": "1997-07-01", "end": "1998-08-31",
+        "desc": "Asian currency crisis — regional contagion",
+        "sti_drop": -0.548,
+    },
+}
+
+@st.cache_data(ttl=86400)
+def fetch_crisis_returns(tickers_str, start_date, end_date):
+    """Returns {ticker: pct_return} over the given crisis window."""
+    tickers = [t.strip() for t in tickers_str.split(",") if t.strip()]
+    result = {}
+    if not tickers:
+        return result
+    try:
+        raw = yf.download(tickers, start=start_date, end=end_date, auto_adjust=True, progress=False)
+        if isinstance(raw.columns, pd.MultiIndex):
+            close_df = raw['Close']
+            for ticker in tickers:
+                if ticker in close_df.columns:
+                    s = close_df[ticker].dropna()
+                    if len(s) >= 2:
+                        result[ticker] = float(s.iloc[-1]) / float(s.iloc[0]) - 1.0
+        else:
+            c = raw['Close'] if 'Close' in raw.columns else raw.iloc[:, 0]
+            if isinstance(c, pd.DataFrame):
+                c = c.iloc[:, 0]
+            s = c.dropna()
+            if len(s) >= 2:
+                result[tickers[0]] = float(s.iloc[-1]) / float(s.iloc[0]) - 1.0
+    except Exception:
+        pass
+    for ticker in [t for t in tickers if t not in result]:
+        try:
+            h = yf.download(ticker, start=start_date, end=end_date, auto_adjust=True, progress=False)
+            c = h['Close'].iloc[:, 0] if isinstance(h['Close'], pd.DataFrame) else h['Close']
+            s = c.dropna()
+            if len(s) >= 2:
+                result[ticker] = float(s.iloc[-1]) / float(s.iloc[0]) - 1.0
+        except Exception:
+            continue
+    return result
+
+@st.cache_data(ttl=3600)
+def fetch_annual_dps(ticker):
+    """Sum last 12 months of dividends from Yahoo Finance for an unknown stock."""
+    if not ticker or not ticker.strip():
+        return 0.0
+    try:
+        divs = yf.Ticker(ticker.strip()).dividends
+        if divs.empty:
+            return 0.0
+        if hasattr(divs.index, 'tz') and divs.index.tz is not None:
+            divs.index = divs.index.tz_localize(None)
+        cutoff = pd.Timestamp.now() - pd.DateOffset(years=1)
+        trailing = divs[divs.index >= cutoff]
+        if trailing.empty:
+            trailing = divs.tail(4)
+        return round(float(trailing.sum()), 4)
+    except Exception:
+        return 0.0
+
 # --- 5. SIDEBAR ---
 st.sidebar.markdown("""
 <div style='text-align:center; padding:16px 0 22px 0;'>
@@ -433,9 +600,10 @@ If you purchase a brand new asset, the app calculates AUM automatically but hide
 """)
 
 # --- 6. TABS ---
-t1, t2, t3, t4, t5, t6, t7 = st.tabs([
-    "📊 Asset Discovery", "📈 Market Benchmark", "📂 Verification Hub",
-    "📜 Strategic Advisory", "⚠️ Risk Analytics", "📅 Dividend Calendar", "🎯 Portfolio Optimisation"
+t1, t2, t3, t4, t5, t6, t7, t8, t9 = st.tabs([
+    "📊 Discovery", "📈 Benchmark", "📂 Holdings",
+    "📜 Advisory", "⚠️ Risk", "📅 Dividends",
+    "🎯 Optimise", "🔥 Stress Test", "🏆 Goals"
 ])
 
 # --- 7. MAIN CONTENT ---
@@ -449,6 +617,50 @@ if uploaded_file:
         all_sects = sorted(df_raw['Sector'].unique())
         sel_sects = st.sidebar.multiselect("Filter Analysis Universe", all_sects, default=all_sects)
         df = df_raw[df_raw['Sector'].isin(sel_sects)].copy()
+
+        # ── Unknown-stock supplemental data UI ───────────────────────
+        unknown_stocks = df[df['Known'] == False]['Security'].tolist() if 'Known' in df.columns else []
+        if unknown_stocks:
+            with st.sidebar.expander(f"🔍 Enrich {len(unknown_stocks)} Unknown Stock(s)", expanded=True):
+                st.markdown(
+                    "<small>These holdings were not found in the built-in database. "
+                    "Enter a Yahoo Finance ticker (e.g. <code>BN4.SI</code>) to fetch live DPS data, "
+                    "or enter a DPS manually.</small>",
+                    unsafe_allow_html=True,
+                )
+                for stk in unknown_stocks:
+                    st.markdown(f"**{stk}**")
+                    col_t, col_d = st.columns([3, 2])
+                    ticker_key = f"supp_ticker_{stk}"
+                    dps_key = f"supp_dps_{stk}"
+                    fetch_key = f"supp_fetched_{stk}"
+                    with col_t:
+                        ticker_input = st.text_input("Ticker", key=ticker_key,
+                                                     placeholder="e.g. BN4.SI",
+                                                     label_visibility="collapsed")
+                    if ticker_input and ticker_input != st.session_state.get(fetch_key, ""):
+                        auto_dps = fetch_annual_dps(ticker_input)
+                        st.session_state[dps_key] = auto_dps
+                        st.session_state[fetch_key] = ticker_input
+                        # also store ticker for downstream tab use
+                        st.session_state[f"supp_ticker_val_{stk}"] = ticker_input
+                    with col_d:
+                        dps_default = st.session_state.get(dps_key, 0.0)
+                        dps_override = st.number_input("DPS (S$)", key=f"supp_dps_input_{stk}",
+                                                        min_value=0.0, step=0.01,
+                                                        value=float(dps_default),
+                                                        label_visibility="collapsed")
+                        st.session_state[dps_key] = dps_override
+
+        # Apply session_state DPS overrides and ticker enrichment to df
+        if 'Known' in df.columns:
+            for stk in df[df['Known'] == False]['Security'].tolist():
+                dps_val = st.session_state.get(f"supp_dps_input_{stk}", st.session_state.get(f"supp_dps_{stk}", 0.0))
+                ticker_val = st.session_state.get(f"supp_ticker_val_{stk}", None)
+                mask = df['Security'] == stk
+                df.loc[mask, 'DPS'] = float(dps_val)
+                if ticker_val:
+                    df.loc[mask, 'Ticker'] = ticker_val
 
         total_aum = df['AUM (SGD)'].sum()
         df["Annual Dividend (SGD)"] = (df["Quantity"] * df["DPS"]).round(2)
@@ -469,6 +681,33 @@ if uploaded_file:
         with k1: kpi_card("💼", "Total AUM", f"S${total_aum:,.0f}")
         with k2: kpi_card("💰", "Annualised Income", f"S${total_inc:,.0f}")
         with k3: kpi_card("📈", "Portfolio Yield", f"{port_yield:.2f}%")
+
+        # ── DPS data-quality banner ───────────────────────────────────
+        active_notes = {k: v for k, v in DPS_NOTES.items() if k in df['Security'].values}
+        note_items = "".join(
+            f"<li style='margin-bottom:4px;'><strong>{k}</strong> — {v}</li>"
+            for k, v in active_notes.items()
+        )
+        # Warn about unknown stocks still carrying DPS=0
+        if 'Known' in df.columns:
+            zero_dps_unknown = df[(df['Known'] == False) & (df['DPS'] == 0)]['Security'].tolist()
+            if zero_dps_unknown:
+                names_str = ", ".join(zero_dps_unknown)
+                note_items += (
+                    f"<li style='margin-bottom:4px;color:#C0392B;'><strong>Missing DPS data:</strong> "
+                    f"{names_str} — income is shown as S$0. Use the sidebar enrichment panel to add a ticker or enter DPS manually.</li>"
+                )
+        note_block = f"<ul style='margin:6px 0 2px 0;padding-left:20px;'>{note_items}</ul>" if note_items else ""
+        st.markdown(
+            f"<div style='background:rgba(243,156,18,0.07);border-left:4px solid #F39C12;"
+            f"border-radius:0 8px 8px 0;padding:11px 16px;margin:14px 0 4px 0;"
+            f"font-size:0.84rem;color:#7D6608;'>"
+            f"⚠️ <strong>Dividend Data Notice</strong> — DPS values reflect <strong>{_DPS_AS_OF}</strong> "
+            f"filings. They are manually maintained and must be updated whenever companies "
+            f"announce dividend changes. <em>Income figures are estimates, not guarantees.</em>"
+            f"{note_block}</div>",
+            unsafe_allow_html=True
+        )
 
         # ══════════════════════════════════════════
         # TAB 1 — ASSET DISCOVERY
@@ -534,24 +773,194 @@ if uploaded_file:
         # TAB 3 — VERIFICATION HUB
         # ══════════════════════════════════════════
         with t3:
-            st.markdown('<p class="tab-subtitle">Drill into each sector\'s holdings — review quantity, DPS, yield, and AUM contribution at a glance.</p>', unsafe_allow_html=True)
+            SECTOR_ICONS = {
+                "Financial Services": "🏦", "REITs & Business Trusts": "🏢",
+                "Telecommunications": "📡", "Technology": "💻",
+                "Industrials & Diversified": "⚙️", "Consumer Goods": "🛒",
+                "Real Estate": "🏗️", "Fixed Income": "📄",
+                "Equities (Unclassified)": "📊",
+            }
+
+            def _yield_color(val):
+                if not isinstance(val, (int, float)): return ''
+                if val >= 5.0: return 'background-color:rgba(39,174,96,0.18);color:#1E8449;font-weight:600;'
+                if val >= 3.0: return 'background-color:rgba(243,156,18,0.13);color:#7D6608;font-weight:500;'
+                if val > 0:    return 'background-color:rgba(214,48,49,0.12);color:#C0392B;'
+                return ''
+
+            def _pct_color(val):
+                if isinstance(val, (int, float)) and val > 0:
+                    return f'background-color:rgba(41,128,185,{min(0.45, val/100*4.5):.2f});'
+                return ''
+
+            st.markdown('<p class="tab-subtitle">Audit every holding across sectors — AUM, DPS, yield, and income contribution in one place.</p>', unsafe_allow_html=True)
+
+            # ── Top summary row ──────────────────────────────────────
+            vh1, vh2, vh3, vh4 = st.columns(4)
+            top_sector = df.groupby('Sector')['AUM (SGD)'].sum().idxmax() if not df.empty else "—"
+            top_sector_label = (top_sector[:16] + "…") if len(top_sector) > 17 else top_sector
+            with vh1: kpi_card("📋", "Total Holdings", str(len(df)))
+            with vh2: kpi_card("🗂️", "Sectors", str(df['Sector'].nunique()))
+            with vh3: kpi_card("🏆", "Largest Sector", top_sector_label)
+            with vh4: kpi_card("📈", "Portfolio Yield", f"{port_yield:.2f}%")
+
             _, dl_col = st.columns([3, 1])
             with dl_col:
                 csv_data = df[['Security', 'Sector', 'Quantity', 'DPS', 'Annual Dividend (SGD)', 'Dividend Yield (%)', '%Portfolio', 'AUM (SGD)']].to_csv(index=False)
-                st.download_button("📥 Export to CSV", data=csv_data,
+                st.download_button("📥 Export Holdings to CSV", data=csv_data,
                                    file_name=f"portfolio_{datetime.now().strftime('%Y%m%d')}.csv",
                                    mime="text/csv", use_container_width=True)
+
+            # ── Sector overview chart ────────────────────────────────
+            st.markdown("---")
+            st.markdown("#### Sector Overview")
+            sector_ov = df.groupby('Sector').agg(
+                AUM=('AUM (SGD)', 'sum'),
+                Holdings=('Security', 'count'),
+                Income=('Annual Dividend (SGD)', 'sum'),
+            ).reset_index().sort_values('AUM', ascending=False)
+            sector_ov['Yield (%)'] = (sector_ov['Income'] / sector_ov['AUM'] * 100).round(2)
+            sector_ov['% Portfolio'] = (sector_ov['AUM'] / total_aum * 100).round(1)
+            max_yield_ov = max(float(sector_ov['Yield (%)'].max()), 6.0)
+            fig_ov = go.Figure(go.Bar(
+                y=sector_ov['Sector'],
+                x=sector_ov['AUM'],
+                orientation='h',
+                marker=dict(
+                    color=sector_ov['Yield (%)'],
+                    colorscale=[[0, '#1a3a6b'], [0.45, '#2980B9'], [1.0, '#f0b429']],
+                    cmin=0, cmax=max_yield_ov,
+                    colorbar=dict(title='Yield %', thickness=13, len=0.85, tickfont=dict(size=10)),
+                    line=dict(color='white', width=0.5),
+                ),
+                text=[f"  {p:.1f}%  ·  {h} holding{'s' if h > 1 else ''}"
+                      for p, h in zip(sector_ov['% Portfolio'], sector_ov['Holdings'])],
+                textposition='inside',
+                textfont=dict(color='white', size=11),
+                hovertemplate='<b>%{y}</b><br>AUM: S$%{x:,.0f}<br>Yield: %{marker.color:.2f}%<extra></extra>',
+            ))
+            fig_ov.update_layout(
+                template='plotly_white',
+                height=max(260, len(sector_ov) * 46 + 60),
+                margin=dict(t=10, b=10, l=10, r=80),
+                xaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
+                yaxis=dict(autorange='reversed', tickfont=dict(size=12, color='#333')),
+                paper_bgcolor='white', plot_bgcolor='white',
+            )
+            st.plotly_chart(fig_ov, use_container_width=True)
+            st.caption("Bar length = AUM · Colour = dividend yield (navy → gold)")
+
+            # ── Per-sector drill-down ────────────────────────────────
+            st.markdown("---")
+            st.markdown("#### DPS Audit — Verify Before Trusting Income Figures")
+            with st.expander("🔍 Open DPS Audit Table — cross-check these values against the latest company announcements", expanded=False):
+                st.markdown(
+                    f"DPS values sourced from **{_DPS_AS_OF}** filings. "
+                    "Holdings flagged in amber require attention before income figures can be relied upon. "
+                    "To correct a value, update the `Rate` field in `MASTER_INTEL` in `app.py`."
+                )
+                audit_rows = []
+                for _, row in df.sort_values('%Income', ascending=False).iterrows():
+                    note = DPS_NOTES.get(row['Security'], "")
+                    audit_rows.append({
+                        "Security": row['Security'],
+                        "Sector": row['Sector'],
+                        "DPS Used (SGD)": row['DPS'],
+                        "Quantity": row['Quantity'],
+                        "Annual Income (SGD)": row['Annual Dividend (SGD)'],
+                        "% of Total Income": row['%Income'],
+                        "Flag": "⚠️ See note" if note else "✅ No flag",
+                        "Note": note if note else "—",
+                    })
+                audit_df = pd.DataFrame(audit_rows)
+
+                def _flag_style(val):
+                    if isinstance(val, str) and "⚠️" in val:
+                        return 'background-color:rgba(243,156,18,0.18);color:#7D6608;font-weight:600;'
+                    if isinstance(val, str) and "✅" in val:
+                        return 'background-color:rgba(39,174,96,0.12);color:#1E8449;'
+                    return ''
+
+                styled_audit = audit_df.style.format({
+                    'DPS Used (SGD)': '{:.4f}',
+                    'Quantity': '{:,.0f}',
+                    'Annual Income (SGD)': 'S${:,.2f}',
+                    '% of Total Income': '{:.2f}%',
+                }).map(_flag_style, subset=['Flag'])
+                st.dataframe(styled_audit, hide_index=True, use_container_width=True)
+
+                flagged = audit_df[audit_df['Flag'] != "✅ No flag"]
+                if not flagged.empty:
+                    st.warning(
+                        f"**{len(flagged)} holding{'s' if len(flagged) > 1 else ''} flagged** — "
+                        f"these contribute **S${flagged['Annual Income (SGD)'].sum():,.2f}** "
+                        f"({flagged['% of Total Income'].sum():.1f}%) of projected annual income. "
+                        "Resolve flags above before using income figures for financial planning."
+                    )
+                else:
+                    st.success("All DPS values are flagged clean for this portfolio.")
+
+            st.markdown("---")
+            st.markdown("#### Holdings by Sector")
             for s in sorted(df['Sector'].unique()):
                 sdf = df[df['Sector'] == s].copy().sort_values('AUM (SGD)', ascending=False)
-                sdf.insert(0, 'S/N', range(1, len(sdf) + 1))
-                with st.expander(f"{s.upper()}  ·  {len(sdf)} holding{'s' if len(sdf) > 1 else ''}"):
-                    col_chart, col_table = st.columns([1, 1])
-                    with col_chart:
-                        st.plotly_chart(px.bar(sdf, x='Security', y='AUM (SGD)', color='Dividend Yield (%)', color_continuous_scale='Blues'), use_container_width=True)
-                    with col_table:
-                        st.dataframe(sdf[['S/N', 'Security', 'Quantity', 'DPS', 'Annual Dividend (SGD)', 'Dividend Yield (%)', '%Portfolio', 'AUM (SGD)']].style.format(
-                            {'DPS': '{:.2f}', 'Annual Dividend (SGD)': '{:,.2f}', 'Dividend Yield (%)': '{:.2f}%', '%Portfolio': '{:.2f}%', 'AUM (SGD)': '{:,.2f}'}
-                        ).background_gradient(subset=['Dividend Yield (%)'], cmap='Blues', vmin=0), hide_index=True, use_container_width=True)
+                sdf.insert(0, '#', range(1, len(sdf) + 1))
+                sector_aum = float(sdf['AUM (SGD)'].sum())
+                sector_inc = float(sdf['Annual Dividend (SGD)'].sum())
+                sector_yield = (sector_inc / sector_aum * 100) if sector_aum > 0 else 0.0
+                sector_pct = (sector_aum / total_aum * 100)
+                icon = SECTOR_ICONS.get(s, "📌")
+
+                with st.expander(
+                    f"{icon}  {s}   ·   {len(sdf)} holding{'s' if len(sdf) > 1 else ''}   ·   "
+                    f"S${sector_aum:,.0f}   ·   {sector_pct:.1f}% of portfolio   ·   avg yield {sector_yield:.2f}%"
+                ):
+                    sk1, sk2, sk3 = st.columns(3)
+                    with sk1: kpi_card("💼", "Sector AUM", f"S${sector_aum:,.0f}")
+                    with sk2: kpi_card("💰", "Annual Income", f"S${sector_inc:,.0f}")
+                    with sk3: kpi_card("📈", "Avg Yield", f"{sector_yield:.2f}%")
+
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    ch_col, tb_col = st.columns([1, 1.15])
+
+                    with ch_col:
+                        max_y = max(float(sdf['Dividend Yield (%)'].max()), 3.0)
+                        fig_s = go.Figure(go.Bar(
+                            x=sdf['AUM (SGD)'],
+                            y=sdf['Security'],
+                            orientation='h',
+                            marker=dict(
+                                color=sdf['Dividend Yield (%)'],
+                                colorscale=[[0, '#1a3a6b'], [0.45, '#2980B9'], [1.0, '#f0b429']],
+                                cmin=0, cmax=max_y,
+                                showscale=False,
+                                line=dict(color='white', width=0.5),
+                            ),
+                            text=[f"S${v:,.0f}" for v in sdf['AUM (SGD)']],
+                            textposition='outside',
+                            textfont=dict(size=10, color='#333'),
+                            hovertemplate='<b>%{y}</b><br>AUM: S$%{x:,.0f}<br>Yield: %{marker.color:.2f}%<extra></extra>',
+                        ))
+                        fig_s.update_layout(
+                            template='plotly_white',
+                            height=max(180, len(sdf) * 40 + 50),
+                            margin=dict(t=6, b=6, l=6, r=70),
+                            xaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
+                            yaxis=dict(autorange='reversed', tickfont=dict(size=11, color='#333')),
+                            paper_bgcolor='white', plot_bgcolor='#fafbfd',
+                        )
+                        st.plotly_chart(fig_s, use_container_width=True)
+
+                    with tb_col:
+                        disp_cols = ['#', 'Security', 'Quantity', 'DPS', 'Annual Dividend (SGD)', 'Dividend Yield (%)', '%Portfolio', 'AUM (SGD)']
+                        styled_sdf = sdf[disp_cols].style.format({
+                            'DPS': '{:.2f}',
+                            'Annual Dividend (SGD)': 'S${:,.0f}',
+                            'Dividend Yield (%)': '{:.2f}%',
+                            '%Portfolio': '{:.1f}%',
+                            'AUM (SGD)': 'S${:,.0f}',
+                        }).map(_yield_color, subset=['Dividend Yield (%)']).map(_pct_color, subset=['%Portfolio'])
+                        st.dataframe(styled_sdf, hide_index=True, use_container_width=True)
 
         # ══════════════════════════════════════════
         # TAB 4 — STRATEGIC ADVISORY
@@ -752,7 +1161,25 @@ if uploaded_file:
         # ══════════════════════════════════════════
         with t6:
             st.markdown('<p class="tab-subtitle">Project your expected income stream across the next 12 months. Amounts match the Annualised Income KPI; Yahoo Finance data is used for payment timing only.</p>', unsafe_allow_html=True)
-            st.info("ℹ️ **How amounts are calculated:** Each holding's income per payment = (Quantity × DPS from MASTER_INTEL) ÷ payments per year. Yahoo Finance is used only to identify *which months* dividends land in. Projected dates are estimates — actual ex-dividend and payment dates may differ slightly.")
+            active_cal_notes = {k: v for k, v in DPS_NOTES.items() if k in df['Security'].values}
+            cal_note_items = "".join(f"<li><strong>{k}</strong>: {v}</li>" for k, v in active_cal_notes.items())
+            cal_note_block = (
+                f"<br><strong>Holdings requiring DPS verification in this portfolio:</strong>"
+                f"<ul style='margin:4px 0 0 0;padding-left:18px;'>{cal_note_items}</ul>"
+                if cal_note_items else ""
+            )
+            st.markdown(
+                f"<div style='background:rgba(52,152,219,0.06);border-left:4px solid #3498DB;"
+                f"border-radius:0 8px 8px 0;padding:11px 16px;font-size:0.84rem;color:#1a5276;'>"
+                f"ℹ️ <strong>How amounts are calculated:</strong> "
+                f"Each payment = (Quantity × DPS from MASTER_INTEL) ÷ payments per year. "
+                f"DPS values reflect <strong>{_DPS_AS_OF}</strong> filings — they do not update automatically. "
+                f"Yahoo Finance is used only for payment <em>timing</em> (which months), never for amounts. "
+                f"Projected dates are estimates; actual ex-dividend and payment dates may differ. "
+                f"<strong>Do not use these projections as a substitute for official company announcements.</strong>"
+                f"{cal_note_block}</div>",
+                unsafe_allow_html=True
+            )
             eligible_d = df[df['Ticker'].notnull()]
             if eligible_d.empty:
                 st.warning("No holdings with market tickers available.")
@@ -941,6 +1368,594 @@ if uploaded_file:
                     </div>
                     """, unsafe_allow_html=True)
 
+        # ══════════════════════════════════════════
+        # TAB 8 — STRESS TEST
+        # ══════════════════════════════════════════
+        with t8:
+            st.markdown('<p class="tab-subtitle">Simulate how your portfolio performs under historical market crises or custom sector shocks.</p>', unsafe_allow_html=True)
+            st.warning("⚠️ **Disclaimer:** Results are illustrative. Historical mode uses actual price data where available; older periods fall back to beta-adjusted STI returns. Income impact is estimated proportionally to AUM loss. This is not financial advice.")
+
+            # ── MODE 1: Historical Crisis Replay ──
+            st.markdown("### 📉 Mode 1 — Historical Crisis Replay")
+            eligible_st = df[df['Ticker'].notnull()]
+            scen_name = st.selectbox("Select Crisis Scenario", list(CRISIS_SCENARIOS.keys()))
+            scen = CRISIS_SCENARIOS[scen_name]
+            st.caption(f"**{scen['desc']}** &nbsp;·&nbsp; {scen['start']} → {scen['end']} &nbsp;·&nbsp; STI Index: **{scen['sti_drop']*100:+.1f}%**")
+
+            if st.button("🔥 Run Crisis Simulation", key="crisis_btn"):
+                if eligible_st.empty:
+                    st.warning("No holdings with market tickers available.")
+                else:
+                    tickers_str_st = ",".join(eligible_st['Ticker'].tolist())
+                    names_str_st = "|".join(eligible_st['Security'].tolist())
+                    with st.spinner(f"Fetching {scen_name} price data and computing impact..."):
+                        crisis_rets = fetch_crisis_returns(tickers_str_st, scen['start'], scen['end'])
+                        try:
+                            risk_df_st = compute_risk_metrics(tickers_str_st, names_str_st)
+                            beta_map = dict(zip(risk_df_st['Ticker'], risk_df_st['Beta (vs STI)'].fillna(1.0))) if not risk_df_st.empty else {}
+                        except Exception:
+                            beta_map = {}
+
+                    rows_crisis = []
+                    for _, row in df.iterrows():
+                        ticker = row['Ticker']
+                        aum = row['AUM (SGD)']
+                        annual_inc = row['Annual Dividend (SGD)']
+                        if pd.notnull(ticker) and ticker in crisis_rets:
+                            cr = crisis_rets[ticker]
+                            source = "Actual data"
+                        elif pd.notnull(ticker):
+                            beta = float(beta_map.get(ticker, 1.0))
+                            cr = scen['sti_drop'] * beta
+                            source = f"Beta est. ({beta:.2f}×STI)"
+                        else:
+                            cr = scen['sti_drop']
+                            source = "STI proxy"
+                        aum_loss = aum * cr
+                        stressed_aum = aum + aum_loss
+                        stressed_inc = annual_inc * max(0.0, stressed_aum / aum) if aum > 0 else 0.0
+                        rows_crisis.append({
+                            "Security": row['Security'],
+                            "Sector": row['Sector'],
+                            "Current AUM (SGD)": aum,
+                            "Crisis Return (%)": round(cr * 100, 1),
+                            "AUM Loss (SGD)": round(aum_loss, 0),
+                            "Stressed AUM (SGD)": round(stressed_aum, 0),
+                            "Current Income (SGD)": round(annual_inc, 2),
+                            "Stressed Income (SGD)": round(stressed_inc, 2),
+                            "Data Source": source,
+                        })
+
+                    crisis_df = pd.DataFrame(rows_crisis)
+                    cr_total_stressed = crisis_df['Stressed AUM (SGD)'].sum()
+                    cr_aum_loss = crisis_df['AUM Loss (SGD)'].sum()
+                    cr_pct_loss = (cr_aum_loss / total_aum * 100) if total_aum > 0 else 0
+                    cr_stressed_inc = crisis_df['Stressed Income (SGD)'].sum()
+
+                    ck1, ck2, ck3, ck4 = st.columns(4)
+                    with ck1: kpi_card("💼", "Stressed AUM", f"S${cr_total_stressed:,.0f}")
+                    with ck2: kpi_card("📉", "Estimated AUM Loss", f"S${cr_aum_loss:,.0f}")
+                    with ck3: kpi_card("📊", "Portfolio Loss", f"{cr_pct_loss:.1f}%")
+                    with ck4: kpi_card("💰", "Stressed Annual Income", f"S${cr_stressed_inc:,.0f}")
+
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    fig_cr = go.Figure()
+                    fig_cr.add_trace(go.Bar(
+                        name="Current", x=["AUM (SGD)", "Annual Income (SGD)"],
+                        y=[total_aum, total_inc], marker_color="#2980B9",
+                        text=[f"S${total_aum:,.0f}", f"S${total_inc:,.0f}"], textposition="outside"
+                    ))
+                    fig_cr.add_trace(go.Bar(
+                        name=f"Stressed — {scen_name}", x=["AUM (SGD)", "Annual Income (SGD)"],
+                        y=[cr_total_stressed, cr_stressed_inc], marker_color="#E74C3C",
+                        text=[f"S${cr_total_stressed:,.0f}", f"S${cr_stressed_inc:,.0f}"], textposition="outside"
+                    ))
+                    fig_cr.update_layout(barmode="group", template="plotly_white", height=360,
+                                         legend=dict(orientation="h", y=1.1),
+                                         margin=dict(t=30, b=20, l=20, r=20),
+                                         yaxis=dict(showticklabels=False, showgrid=False))
+                    st.plotly_chart(fig_cr, use_container_width=True)
+
+                    st.markdown("#### Holdings Impact Breakdown")
+                    actual_count = int((crisis_df['Data Source'] == 'Actual data').sum())
+                    st.caption(f"ℹ️ {actual_count} of {len(crisis_df)} holdings used actual historical price data. Remainder estimated via beta or STI proxy.")
+                    disp_cr = crisis_df[['Security', 'Sector', 'Current AUM (SGD)', 'Crisis Return (%)', 'AUM Loss (SGD)', 'Stressed AUM (SGD)', 'Data Source']].sort_values('AUM Loss (SGD)')
+                    st.dataframe(
+                        disp_cr.style.format({
+                            'Current AUM (SGD)': 'S${:,.0f}',
+                            'Crisis Return (%)': '{:+.1f}%',
+                            'AUM Loss (SGD)': 'S${:,.0f}',
+                            'Stressed AUM (SGD)': 'S${:,.0f}',
+                        }).map(lambda v: 'color: #C0392B; font-weight: bold;' if isinstance(v, (int, float)) and v < 0 else '',
+                               subset=['Crisis Return (%)', 'AUM Loss (SGD)']),
+                        hide_index=True, use_container_width=True
+                    )
+            else:
+                st.markdown("""
+                <div style='text-align:center; padding:40px; background:#f4f8ff; border-radius:14px; border:1px dashed #c0d8f0; margin-top:16px;'>
+                  <div style='font-size:2.5rem; margin-bottom:12px;'>📉</div>
+                  <p style='font-weight:600; color:#0d2240; margin-bottom:6px;'>Crisis Scenario Simulation</p>
+                  <p style='color:#6b7f9e; font-size:0.88rem; max-width:480px; margin:0 auto;'>
+                    Select a scenario above and click <strong>Run Crisis Simulation</strong>.
+                    Actual price data is used where available; older periods fall back to
+                    beta-adjusted STI returns.
+                  </p>
+                </div>
+                """, unsafe_allow_html=True)
+
+            st.markdown("---")
+
+            # ── MODE 2: Custom Sector Shock ──
+            st.markdown("### ⚙️ Mode 2 — Custom Sector Shock")
+            st.markdown('<p class="tab-subtitle" style="margin-top:-10px;">Apply a custom price shock per sector and instantly see the portfolio impact — no data download required.</p>', unsafe_allow_html=True)
+
+            sectors_present = sorted(df['Sector'].unique())
+            n_slider_cols = min(len(sectors_present), 3)
+            slider_cols = st.columns(n_slider_cols)
+            sector_shocks = {}
+            DEFAULT_SHOCKS = {
+                "REITs & Business Trusts": -20,
+                "Financial Services": -15,
+                "Industrials & Diversified": -20,
+                "Real Estate": -20,
+                "Telecommunications": -15,
+                "Technology": -25,
+                "Consumer Goods": -15,
+                "Fixed Income": -5,
+                "Equities (Unclassified)": -15,
+            }
+            for i, sector in enumerate(sectors_present):
+                with slider_cols[i % n_slider_cols]:
+                    sector_shocks[sector] = st.slider(
+                        sector, min_value=-80, max_value=20,
+                        value=0, format="%d%%", key=f"shock_{sector}"
+                    )
+
+            shock_rows = []
+            for _, row in df.iterrows():
+                shock_pct = sector_shocks.get(row['Sector'], 0) / 100.0
+                aum = row['AUM (SGD)']
+                annual_inc = row['Annual Dividend (SGD)']
+                aum_change = aum * shock_pct
+                stressed_aum = aum + aum_change
+                stressed_inc = annual_inc * max(0.0, stressed_aum / aum) if aum > 0 else 0.0
+                shock_rows.append({
+                    "Security": row['Security'],
+                    "Sector": row['Sector'],
+                    "Shock (%)": shock_pct * 100,
+                    "Current AUM (SGD)": aum,
+                    "AUM Change (SGD)": round(aum_change, 0),
+                    "Stressed AUM (SGD)": round(stressed_aum, 0),
+                    "Stressed Income (SGD)": round(stressed_inc, 2),
+                })
+
+            shock_df = pd.DataFrame(shock_rows)
+            cs_total_stressed = shock_df['Stressed AUM (SGD)'].sum()
+            cs_aum_change = shock_df['AUM Change (SGD)'].sum()
+            cs_pct = (cs_aum_change / total_aum * 100) if total_aum > 0 else 0
+            cs_stressed_inc = shock_df['Stressed Income (SGD)'].sum()
+
+            sk1, sk2, sk3, sk4 = st.columns(4)
+            with sk1: kpi_card("💼", "Stressed AUM", f"S${cs_total_stressed:,.0f}")
+            with sk2: kpi_card("📉", "AUM Change", f"S${cs_aum_change:,.0f}")
+            with sk3: kpi_card("📊", "Portfolio Change", f"{cs_pct:.1f}%")
+            with sk4: kpi_card("💰", "Stressed Annual Income", f"S${cs_stressed_inc:,.0f}")
+
+            sector_impact = shock_df.groupby('Sector').agg(
+                current_aum=('Current AUM (SGD)', 'sum'),
+                stressed_aum=('Stressed AUM (SGD)', 'sum')
+            ).reset_index()
+            fig_cs = go.Figure()
+            fig_cs.add_trace(go.Bar(
+                name="Current AUM", x=sector_impact['Sector'], y=sector_impact['current_aum'],
+                marker_color="#2980B9",
+                text=[f"S${v:,.0f}" for v in sector_impact['current_aum']], textposition="outside"
+            ))
+            fig_cs.add_trace(go.Bar(
+                name="Stressed AUM", x=sector_impact['Sector'], y=sector_impact['stressed_aum'],
+                marker_color="#E74C3C",
+                text=[f"S${v:,.0f}" for v in sector_impact['stressed_aum']], textposition="outside"
+            ))
+            fig_cs.update_layout(
+                barmode="group", template="plotly_white", height=420,
+                xaxis_tickangle=-25,
+                legend=dict(orientation="h", y=1.1),
+                margin=dict(t=30, b=90, l=20, r=20),
+                yaxis=dict(showticklabels=False, showgrid=False)
+            )
+            st.plotly_chart(fig_cs, use_container_width=True)
+
+            st.markdown("#### Holdings Impact")
+            disp_cs = shock_df[['Security', 'Sector', 'Shock (%)', 'Current AUM (SGD)', 'AUM Change (SGD)', 'Stressed AUM (SGD)']].sort_values('AUM Change (SGD)')
+            st.dataframe(
+                disp_cs.style.format({
+                    'Shock (%)': '{:+.0f}%',
+                    'Current AUM (SGD)': 'S${:,.0f}',
+                    'AUM Change (SGD)': 'S${:,.0f}',
+                    'Stressed AUM (SGD)': 'S${:,.0f}',
+                }).map(lambda v: 'color: #C0392B; font-weight: bold;' if isinstance(v, (int, float)) and v < 0 else '',
+                       subset=['Shock (%)', 'AUM Change (SGD)']),
+                hide_index=True, use_container_width=True
+            )
+            st.caption("ℹ️ Income stress is estimated proportionally to AUM change. Dividend cuts in real crises may be more severe, particularly for REITs.")
+
+        # ══════════════════════════════════════════
+        # TAB 9 — GOAL PLANNER
+        # ══════════════════════════════════════════
+        with t9:
+            st.markdown('<p class="tab-subtitle">Model financial goals and track your portfolio\'s progress toward passive income milestones, retirement readiness, and wealth accumulation targets.</p>', unsafe_allow_html=True)
+
+            goal_mode = st.radio(
+                "Select Goal Type",
+                ["💸 Passive Income", "🏖️ Retirement Readiness", "📈 Portfolio Growth"],
+                horizontal=True
+            )
+            st.markdown("---")
+
+            current_year = datetime.now().year
+            current_yield_dec = port_yield / 100
+
+            # Derive weighted historical return from cached risk metrics (best-effort)
+            default_return_pct = round(port_yield + 2.0, 1)
+            try:
+                elig_gp = df[df['Ticker'].notnull()]
+                if not elig_gp.empty:
+                    tg = ",".join(elig_gp['Ticker'].tolist())
+                    ng = "|".join(elig_gp['Security'].tolist())
+                    rg = compute_risk_metrics(tg, ng)
+                    if not rg.empty:
+                        aum_gp = dict(zip(elig_gp['Security'], elig_gp['AUM (SGD)']))
+                        tot_gp = elig_gp['AUM (SGD)'].sum()
+                        wret = sum(
+                            float(rg.loc[rg['Security'] == n, 'Ann. Return (%)'].iloc[0]) / 100 * aum_gp.get(n, 0)
+                            for n in rg['Security'].tolist() if aum_gp.get(n, 0) > 0
+                        ) / tot_gp if tot_gp > 0 else 0
+                        if 0.0 < wret < 0.30:
+                            default_return_pct = round(wret * 100, 1)
+            except Exception:
+                pass
+
+            # ── PASSIVE INCOME ──────────────────────────────────────
+            if goal_mode == "💸 Passive Income":
+                st.markdown("#### 💸 Passive Income Goal")
+                st.markdown("Set a target monthly dividend income and project when your portfolio reaches it — with or without reinvesting dividends.")
+
+                current_monthly_inc = total_inc / 12
+
+                gi_c1, gi_c2 = st.columns([1, 2])
+                with gi_c1:
+                    target_monthly = st.number_input(
+                        "Target Monthly Income (SGD)",
+                        min_value=100.0, max_value=100000.0,
+                        value=float(round(max(current_monthly_inc * 1.5, current_monthly_inc + 500), -2)),
+                        step=100.0
+                    )
+                    horizon_pi = st.slider("Projection Horizon (Years)", 5, 40, 15)
+                    annual_savings_pi = st.number_input(
+                        "Annual Additional Investment (SGD)",
+                        min_value=0.0, max_value=1000000.0,
+                        value=12000.0, step=1000.0,
+                        help="New capital added each year (S$1,000/month = S$12,000/year)"
+                    )
+                    exp_return_pi = st.slider(
+                        "Expected Annual Total Return (%)",
+                        1.0, 15.0, float(min(max(default_return_pct, 3.0), 12.0)), 0.5,
+                        help="Dividend yield + expected capital appreciation"
+                    )
+
+                progress_pct = min(100.0, current_monthly_inc / target_monthly * 100) if target_monthly > 0 else 0
+                gap_capital = max(0.0, target_monthly * 12 / current_yield_dec - total_aum) if current_yield_dec > 0 else 0.0
+
+                pk1, pk2, pk3, pk4 = st.columns(4)
+                with pk1: kpi_card("💰", "Current Monthly Income", f"S${current_monthly_inc:,.0f}")
+                with pk2: kpi_card("🎯", "Target Monthly Income", f"S${target_monthly:,.0f}")
+                with pk3: kpi_card("📊", "Progress to Target", f"{progress_pct:.1f}%")
+                with pk4: kpi_card("💼", "Capital Gap (at current yield)", f"S${gap_capital:,.0f}")
+
+                bar_color_pi = "#27AE60" if progress_pct >= 80 else "#F39C12" if progress_pct >= 40 else "#E74C3C"
+                st.markdown(f"""
+                <div style='margin:16px 0 8px 0;'>
+                  <div style='font-size:0.75rem;color:#6b7f9e;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;'>Progress to Target</div>
+                  <div style='background:#e8eef7;border-radius:8px;height:14px;overflow:hidden;'>
+                    <div style='width:{min(progress_pct,100):.1f}%;background:{bar_color_pi};height:14px;border-radius:8px;'></div>
+                  </div>
+                  <div style='font-size:0.72rem;color:#6b7f9e;margin-top:3px;'>S${current_monthly_inc:,.0f} / S${target_monthly:,.0f} per month</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                exp_ret_dec_pi = exp_return_pi / 100
+                proj_reinvest = project_portfolio_growth(total_aum, annual_savings_pi, exp_ret_dec_pi, current_yield_dec, horizon_pi, True)
+                proj_no_reinvest = project_portfolio_growth(total_aum, annual_savings_pi, exp_ret_dec_pi, current_yield_dec, horizon_pi, False)
+
+                proj_years_pi = [current_year + r['Year'] for r in proj_reinvest]
+                inc_reinvest = [r['Monthly Income (SGD)'] for r in proj_reinvest]
+                inc_no_reinvest = [r['Monthly Income (SGD)'] for r in proj_no_reinvest]
+
+                eta_reinvest = next((current_year + r['Year'] for r in proj_reinvest if r['Monthly Income (SGD)'] >= target_monthly), None)
+                eta_no_reinvest = next((current_year + r['Year'] for r in proj_no_reinvest if r['Monthly Income (SGD)'] >= target_monthly), None)
+
+                fig_pi = go.Figure()
+                fig_pi.add_trace(go.Scatter(
+                    x=proj_years_pi, y=inc_reinvest,
+                    name="With Dividend Reinvestment",
+                    line=dict(color='#27AE60', width=2.5),
+                    fill='tozeroy', fillcolor='rgba(39,174,96,0.08)'
+                ))
+                fig_pi.add_trace(go.Scatter(
+                    x=proj_years_pi, y=inc_no_reinvest,
+                    name="Dividends Paid Out (no reinvestment)",
+                    line=dict(color='#F39C12', width=2, dash='dot')
+                ))
+                fig_pi.add_hline(
+                    y=target_monthly, line_dash="dash", line_color="#E74C3C", line_width=2,
+                    annotation_text=f"Target: S${target_monthly:,.0f}/month", annotation_position="top left"
+                )
+                fig_pi.update_layout(
+                    template='plotly_white', height=380,
+                    xaxis_title="Year", yaxis_title="Monthly Income (SGD)",
+                    legend=dict(orientation="h", y=1.12),
+                    margin=dict(t=30, b=20, l=20, r=20)
+                )
+                with gi_c2:
+                    st.plotly_chart(fig_pi, use_container_width=True)
+
+                eta1, eta2 = st.columns(2)
+                with eta1:
+                    if eta_reinvest:
+                        st.success(f"**With reinvestment:** Target reached in **{eta_reinvest}** ({eta_reinvest - current_year} years)")
+                    else:
+                        st.warning(f"**With reinvestment:** Reaches S${inc_reinvest[-1]:,.0f}/month by {proj_years_pi[-1]}. Extend horizon or increase savings.")
+                with eta2:
+                    if eta_no_reinvest:
+                        st.info(f"**Without reinvestment:** Target reached in **{eta_no_reinvest}** ({eta_no_reinvest - current_year} years)")
+                    else:
+                        st.warning(f"**Without reinvestment:** Reaches S${inc_no_reinvest[-1]:,.0f}/month by {proj_years_pi[-1]}.")
+
+                st.markdown("#### Year-by-Year Projection (With Reinvestment)")
+                proj_df_pi = pd.DataFrame(proj_reinvest)
+                proj_df_pi['Calendar Year'] = proj_years_pi
+                proj_df_pi_disp = proj_df_pi[['Calendar Year', 'AUM (SGD)', 'Annual Income (SGD)', 'Monthly Income (SGD)']].rename(
+                    columns={'AUM (SGD)': 'Portfolio AUM', 'Annual Income (SGD)': 'Annual Dividends', 'Monthly Income (SGD)': 'Monthly Dividends'}
+                )
+                st.dataframe(
+                    proj_df_pi_disp.style.format({
+                        'Portfolio AUM': 'S${:,.0f}',
+                        'Annual Dividends': 'S${:,.0f}',
+                        'Monthly Dividends': 'S${:,.0f}',
+                    }).background_gradient(subset=['Monthly Dividends'], cmap='Greens', vmin=0),
+                    hide_index=True, use_container_width=True
+                )
+                st.caption(f"ℹ️ Assumes {exp_return_pi:.1f}% total annual return and S${annual_savings_pi:,.0f}/year new capital. Portfolio yield held constant at {port_yield:.2f}%.")
+
+            # ── RETIREMENT READINESS ─────────────────────────────────
+            elif goal_mode == "🏖️ Retirement Readiness":
+                st.markdown("#### 🏖️ Retirement Readiness")
+                st.markdown("Model the AUM required to fund your retirement income target and check whether your portfolio is on track.")
+
+                rr_c1, rr_c2, rr_c3 = st.columns(3)
+                with rr_c1:
+                    current_age = st.slider("Current Age", 25, 74, 50)
+                    retirement_age = st.slider("Target Retirement Age", current_age + 1, 85, min(current_age + 15, 65))
+                with rr_c2:
+                    target_ret_monthly = st.number_input(
+                        "Target Monthly Income at Retirement (SGD)",
+                        min_value=500.0, max_value=50000.0, value=3000.0, step=500.0
+                    )
+                    withdrawal_yield = st.slider(
+                        "Withdrawal Yield at Retirement (%)", 1.0, 10.0,
+                        float(round(min(max(port_yield, 2.0), 8.0), 1)), 0.5,
+                        help="Expected dividend yield of your portfolio at retirement"
+                    )
+                with rr_c3:
+                    exp_return_rr = st.slider(
+                        "Expected Annual Total Return (%)", 1.0, 15.0,
+                        float(min(max(default_return_pct, 3.0), 12.0)), 0.5
+                    )
+                    annual_savings_rr = st.number_input(
+                        "Annual Additional Investment (SGD)",
+                        min_value=0.0, max_value=1000000.0, value=12000.0, step=1000.0
+                    )
+
+                years_to_retire = retirement_age - current_age
+                req_aum = target_ret_monthly * 12 / (withdrawal_yield / 100) if withdrawal_yield > 0 else 0.0
+                proj_rr = project_portfolio_growth(total_aum, annual_savings_rr, exp_return_rr / 100, current_yield_dec, years_to_retire, True)
+                projected_aum_retirement = float(proj_rr[-1]['AUM (SGD)']) if proj_rr else total_aum
+                aum_gap_rr = req_aum - projected_aum_retirement
+                readiness_pct = min(100.0, projected_aum_retirement / req_aum * 100) if req_aum > 0 else 100.0
+
+                r_rr = exp_return_rr / 100
+                n_rr = years_to_retire
+                if aum_gap_rr > 0 and n_rr > 0 and r_rr > 0:
+                    extra_savings_rr = aum_gap_rr * r_rr / ((1 + r_rr) ** n_rr - 1)
+                elif aum_gap_rr > 0 and n_rr > 0:
+                    extra_savings_rr = aum_gap_rr / n_rr
+                else:
+                    extra_savings_rr = 0.0
+
+                rk1, rk2, rk3, rk4 = st.columns(4)
+                with rk1: kpi_card("🎯", "AUM Needed at Retirement", f"S${req_aum:,.0f}")
+                with rk2: kpi_card("📈", f"Projected AUM (in {n_rr}Y)", f"S${projected_aum_retirement:,.0f}")
+                with rk3: kpi_card("📊", "Retirement Readiness", f"{readiness_pct:.1f}%")
+                with rk4:
+                    if aum_gap_rr > 0:
+                        kpi_card("⚠️", "AUM Gap", f"S${aum_gap_rr:,.0f}")
+                    else:
+                        kpi_card("✅", "AUM Surplus", f"S${abs(aum_gap_rr):,.0f}")
+
+                bar_color_rr = "#27AE60" if readiness_pct >= 80 else "#F39C12" if readiness_pct >= 50 else "#E74C3C"
+                st.markdown(f"""
+                <div style='margin:16px 0 8px 0;'>
+                  <div style='font-size:0.75rem;color:#6b7f9e;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;'>Retirement Readiness</div>
+                  <div style='background:#e8eef7;border-radius:8px;height:14px;overflow:hidden;'>
+                    <div style='width:{min(readiness_pct,100):.1f}%;background:{bar_color_rr};height:14px;border-radius:8px;'></div>
+                  </div>
+                  <div style='font-size:0.72rem;color:#6b7f9e;margin-top:3px;'>Projected S${projected_aum_retirement:,.0f} vs required S${req_aum:,.0f} at age {retirement_age}</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                if aum_gap_rr > 0:
+                    st.warning(f"**Gap of S${aum_gap_rr:,.0f}** remains. An additional **S${extra_savings_rr:,.0f}/year** (S${extra_savings_rr/12:,.0f}/month) on top of current savings would close the gap by age {retirement_age}, at {exp_return_rr:.1f}% annual return.")
+                else:
+                    st.success(f"Portfolio is on track — projected to exceed the retirement target by **S${abs(aum_gap_rr):,.0f}**. Consider increasing your income target or retiring earlier.")
+
+                proj_years_rr = [current_year + r['Year'] for r in proj_rr]
+                fig_rr = go.Figure()
+                fig_rr.add_trace(go.Scatter(
+                    x=proj_years_rr, y=[r['AUM (SGD)'] for r in proj_rr],
+                    name="Projected Portfolio AUM",
+                    line=dict(color='#2980B9', width=2.5),
+                    fill='tozeroy', fillcolor='rgba(41,128,185,0.08)'
+                ))
+                fig_rr.add_hline(
+                    y=req_aum, line_dash="dash", line_color="#E74C3C", line_width=2,
+                    annotation_text=f"Required AUM: S${req_aum:,.0f}", annotation_position="top left"
+                )
+                fig_rr.add_vline(
+                    x=current_year + n_rr, line_dash="dot", line_color="#F39C12", line_width=2,
+                    annotation_text=f"Retirement {current_year + n_rr}", annotation_position="top right"
+                )
+                fig_rr.update_layout(
+                    template='plotly_white', height=380,
+                    xaxis_title="Year", yaxis_title="Portfolio AUM (SGD)",
+                    legend=dict(orientation="h", y=1.12),
+                    margin=dict(t=30, b=20, l=20, r=20)
+                )
+                st.plotly_chart(fig_rr, use_container_width=True)
+                st.caption(f"ℹ️ Assumes {exp_return_rr:.1f}% annual total return with full dividend reinvestment, S${annual_savings_rr:,.0f}/year new investment. Required AUM = S${target_ret_monthly:,.0f}/month × 12 ÷ {withdrawal_yield:.1f}% withdrawal yield.")
+
+                st.markdown("#### Retirement Scenario Comparison")
+                scen_rows = []
+                for ret_scenario, label in [(exp_return_rr - 2, "Pessimistic"), (exp_return_rr, "Base"), (exp_return_rr + 2, "Optimistic")]:
+                    if ret_scenario <= 0:
+                        continue
+                    p_s = project_portfolio_growth(total_aum, annual_savings_rr, ret_scenario / 100, current_yield_dec, n_rr, True)
+                    aum_s = float(p_s[-1]['AUM (SGD)'])
+                    inc_s = aum_s * (withdrawal_yield / 100) / 12
+                    gap_s = req_aum - aum_s
+                    scen_rows.append({
+                        "Scenario": label,
+                        "Annual Return": f"{ret_scenario:.1f}%",
+                        "AUM at Retirement (SGD)": round(aum_s, 0),
+                        "Monthly Income (SGD)": round(inc_s, 0),
+                        "Gap to Target (SGD)": round(gap_s, 0),
+                    })
+                if scen_rows:
+                    scen_df_rr = pd.DataFrame(scen_rows)
+                    st.dataframe(
+                        scen_df_rr.style.format({
+                            'AUM at Retirement (SGD)': 'S${:,.0f}',
+                            'Monthly Income (SGD)': 'S${:,.0f}',
+                            'Gap to Target (SGD)': 'S${:+,.0f}',
+                        }).map(lambda v: 'color: #27AE60; font-weight:bold;' if isinstance(v, (int, float)) and v <= 0 else
+                               ('color: #C0392B; font-weight:bold;' if isinstance(v, (int, float)) and v > 0 else ''),
+                               subset=['Gap to Target (SGD)']),
+                        hide_index=True, use_container_width=True
+                    )
+
+            # ── PORTFOLIO GROWTH TARGET ──────────────────────────────
+            else:
+                st.markdown("#### 📈 Portfolio Growth Target")
+                st.markdown("Set a target AUM and project when you'll reach it under bear, base, and bull return scenarios.")
+
+                pg_c1, pg_c2 = st.columns([1, 2])
+                with pg_c1:
+                    target_aum_pg = st.number_input(
+                        "Target Portfolio AUM (SGD)",
+                        min_value=10000.0, max_value=100000000.0,
+                        value=float(round(total_aum * 2, -4)), step=50000.0
+                    )
+                    annual_savings_pg = st.number_input(
+                        "Annual Additional Investment (SGD)",
+                        min_value=0.0, max_value=1000000.0, value=12000.0, step=1000.0
+                    )
+                    exp_return_pg = st.slider(
+                        "Base Expected Annual Return (%)", 1.0, 15.0,
+                        float(min(max(default_return_pct, 3.0), 12.0)), 0.5
+                    )
+                    reinvest_pg = st.checkbox("Reinvest Dividends", value=True)
+
+                horizon_pg = 40
+                bear_ret = max(0.5, exp_return_pg - 3.0) / 100
+                base_ret = exp_return_pg / 100
+                bull_ret = (exp_return_pg + 3.0) / 100
+
+                proj_bear = project_portfolio_growth(total_aum, annual_savings_pg, bear_ret, current_yield_dec, horizon_pg, reinvest_pg)
+                proj_base = project_portfolio_growth(total_aum, annual_savings_pg, base_ret, current_yield_dec, horizon_pg, reinvest_pg)
+                proj_bull = project_portfolio_growth(total_aum, annual_savings_pg, bull_ret, current_yield_dec, horizon_pg, reinvest_pg)
+
+                proj_years_pg = [current_year + r['Year'] for r in proj_base]
+                eta_bear = next((current_year + r['Year'] for r in proj_bear if r['AUM (SGD)'] >= target_aum_pg), None)
+                eta_base = next((current_year + r['Year'] for r in proj_base if r['AUM (SGD)'] >= target_aum_pg), None)
+                eta_bull = next((current_year + r['Year'] for r in proj_bull if r['AUM (SGD)'] >= target_aum_pg), None)
+                gap_pg = max(0.0, target_aum_pg - total_aum)
+
+                pgk1, pgk2, pgk3, pgk4 = st.columns(4)
+                with pgk1: kpi_card("🎯", "Target AUM", f"S${target_aum_pg:,.0f}")
+                with pgk2: kpi_card("💼", "Current AUM", f"S${total_aum:,.0f}")
+                with pgk3: kpi_card("📉", "AUM Gap", f"S${gap_pg:,.0f}")
+                with pgk4:
+                    kpi_card("📅", "Base Case ETA", str(eta_base) if eta_base else ">40Y")
+
+                fig_pg = go.Figure()
+                fig_pg.add_trace(go.Scatter(
+                    x=proj_years_pg, y=[r['AUM (SGD)'] for r in proj_bear],
+                    name=f"Bear ({exp_return_pg - 3:.1f}%)",
+                    line=dict(color='#E74C3C', width=1.5, dash='dot')
+                ))
+                fig_pg.add_trace(go.Scatter(
+                    x=proj_years_pg, y=[r['AUM (SGD)'] for r in proj_base],
+                    name=f"Base ({exp_return_pg:.1f}%)",
+                    line=dict(color='#2980B9', width=2.5),
+                    fill='tonexty', fillcolor='rgba(41,128,185,0.07)'
+                ))
+                fig_pg.add_trace(go.Scatter(
+                    x=proj_years_pg, y=[r['AUM (SGD)'] for r in proj_bull],
+                    name=f"Bull ({exp_return_pg + 3:.1f}%)",
+                    line=dict(color='#27AE60', width=1.5, dash='dot'),
+                    fill='tonexty', fillcolor='rgba(39,174,96,0.06)'
+                ))
+                fig_pg.add_hline(
+                    y=target_aum_pg, line_dash="dash", line_color="#F39C12", line_width=2,
+                    annotation_text=f"Target: S${target_aum_pg:,.0f}", annotation_position="top left"
+                )
+                fig_pg.update_layout(
+                    template='plotly_white', height=420,
+                    xaxis_title="Year", yaxis_title="Portfolio AUM (SGD)",
+                    legend=dict(orientation="h", y=1.12),
+                    margin=dict(t=30, b=20, l=20, r=20)
+                )
+                with pg_c2:
+                    st.plotly_chart(fig_pg, use_container_width=True)
+
+                with pg_c1:
+                    st.markdown("**Scenario ETAs**")
+                    st.write(f"🐻 Bear ({exp_return_pg-3:.1f}%): **{eta_bear if eta_bear else '>40Y'}**" + (f" ({eta_bear - current_year}Y)" if eta_bear else ""))
+                    st.write(f"📊 Base ({exp_return_pg:.1f}%): **{eta_base if eta_base else '>40Y'}**" + (f" ({eta_base - current_year}Y)" if eta_base else ""))
+                    st.write(f"🐂 Bull ({exp_return_pg+3:.1f}%): **{eta_bull if eta_bull else '>40Y'}**" + (f" ({eta_bull - current_year}Y)" if eta_bull else ""))
+
+                st.markdown("#### Return Sensitivity")
+                sens_rows = []
+                for ret_pct in [3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 10.0, 12.0]:
+                    ps = project_portfolio_growth(total_aum, annual_savings_pg, ret_pct / 100, current_yield_dec, 40, reinvest_pg)
+                    eta_s = next((r['Year'] for r in ps if r['AUM (SGD)'] >= target_aum_pg), None)
+                    sens_rows.append({
+                        "Annual Return": f"{ret_pct:.0f}%",
+                        "AUM in 10Y": ps[min(10, len(ps)-1)]['AUM (SGD)'],
+                        "AUM in 20Y": ps[min(20, len(ps)-1)]['AUM (SGD)'],
+                        "AUM in 30Y": ps[min(30, len(ps)-1)]['AUM (SGD)'],
+                        "Years to Target": f"{eta_s}Y" if eta_s else ">40Y",
+                    })
+                sens_df = pd.DataFrame(sens_rows)
+                st.dataframe(
+                    sens_df.style.format({
+                        'AUM in 10Y': 'S${:,.0f}',
+                        'AUM in 20Y': 'S${:,.0f}',
+                        'AUM in 30Y': 'S${:,.0f}',
+                    }),
+                    hide_index=True, use_container_width=True
+                )
+                st.caption(f"ℹ️ All scenarios assume S${annual_savings_pg:,.0f}/year new investment, {'with' if reinvest_pg else 'without'} dividend reinvestment. Portfolio yield held constant at {port_yield:.2f}%.")
+
 # ══════════════════════════════════════════
 # LANDING PAGE
 # ══════════════════════════════════════════
@@ -951,8 +1966,8 @@ else:
       <h1 style='color:#0d2240; font-size:2rem; font-weight:700; margin:12px 0 6px 0;'>CLP Wealth Center</h1>
       <p style='color:#6b7f9e; font-size:1rem; max-width:540px; margin:0 auto;'>
         Your personal portfolio intelligence platform. Upload a CDP statement PDF to unlock
-        seven analytical modules — from sector analysis and income tracking to risk metrics,
-        dividend forecasting, and Modern Portfolio Theory optimisation.
+        nine analytical modules — from sector analysis and income tracking to risk metrics,
+        dividend forecasting, portfolio optimisation, crisis stress testing, and goal-based planning.
       </p>
     </div>
     <div class="feat-grid" style='margin-top:36px;'>
@@ -963,10 +1978,12 @@ else:
       <div class="feat-card"><div class="feat-icon">⚠️</div><div class="feat-title">Risk Analytics</div><div class="feat-desc">Volatility, Sharpe ratio, beta, VaR, max drawdown, and correlation heatmap per holding.</div></div>
       <div class="feat-card"><div class="feat-icon">📅</div><div class="feat-title">Dividend Calendar</div><div class="feat-desc">12-month income projection by holding, stacked by month with a gap analysis.</div></div>
       <div class="feat-card"><div class="feat-icon">🎯</div><div class="feat-title">Portfolio Optimisation</div><div class="feat-desc">Efficient Frontier via Monte Carlo — Max Sharpe and Min Volatility weight suggestions.</div></div>
+      <div class="feat-card"><div class="feat-icon">🔥</div><div class="feat-title">Stress Test</div><div class="feat-desc">Simulate portfolio impact under GFC, COVID, and rate-hike crises, or apply custom sector shocks.</div></div>
+      <div class="feat-card"><div class="feat-icon">🏆</div><div class="feat-title">Goal Planner</div><div class="feat-desc">Model passive income, retirement readiness, and portfolio growth targets with projection charts.</div></div>
     </div>
     <div style='text-align:center; margin-top:40px; padding:24px; background:#f4f8ff; border-radius:14px; border:1px dashed #c0d8f0;'>
       <div style='font-size:1.4rem; margin-bottom:8px;'>⬆️</div>
       <p style='color:#0d2240; font-weight:600; margin:0 0 4px 0;'>Get started</p>
-      <p style='color:#6b7f9e; font-size:0.88rem; margin:0;'>Use the <strong>Upload Portfolio Statement</strong> button in the sidebar to begin.</p>
+      <p style='color:#6b7f9e; font-size:0.88rem; margin:0;'>Use the <strong>Upload CDP Portfolio Statement</strong> button in the sidebar to begin.</p>
     </div>
     """, unsafe_allow_html=True)

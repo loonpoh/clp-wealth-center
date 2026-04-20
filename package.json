@@ -1,0 +1,5 @@
+{
+  "devDependencies": {
+    "@winner-fed/nemo-engine": "^0.1.2"
+  }
+}
