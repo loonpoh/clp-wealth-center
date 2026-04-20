@@ -166,6 +166,7 @@ MASTER_INTEL = {
     "STARHILLGBL REIT": {"Rate": 0.04, "PB": 0.72, "Ticker": "P40U.SI", "Sector": "REITs & Business Trusts"},
     "STARHUB": {"Rate": 0.05, "PB": 2.80, "Ticker": "CC3.SI", "Sector": "Telecommunications"},
     "UOL": {"Rate": 0.20, "PB": 0.45, "Ticker": "U14.SI", "Sector": "Real Estate"},
+    "BUKIT SEMBAWANG": {"Rate": 0.01, "PB": 2.45, "Ticker": "B61.SI", "Sector": "Real Estate"},
     "HPH TRUST USD": {"Rate": 0.02, "PB": 0.35, "Ticker": "NS8U.SI", "Sector": "REITs & Business Trusts"},
     "ASTREAVIB310318": {"Rate": 0.03, "PB": 1.00, "Ticker": None, "Sector": "Fixed Income"},
     "SBDEC17 GX17120W": {"Rate": 0.03, "PB": 1.00, "Ticker": None, "Sector": "Fixed Income"}
@@ -214,7 +215,7 @@ def extract_pdf(file):
                     row = [str(c).replace('\n', ' ').strip() for c in row if c is not None and str(c).strip() != '']
                     if len(row) < 3: continue
                     raw_name = row[0].upper()
-                    if any(x in raw_name for x in ["SECURITY", "BALANCE", "DATE", "TOTAL", "PAGE", "STATEMENT", "PORTFOLIO", "SUB-TOTAL"]): continue
+                    if any(x in raw_name for x in ["SECURITY", "BALANCE", "DATE", "TOTAL", "PAGE", "STATEMENT", "PORTFOLIO", "SUB-TOTAL", "SECURITIES A/C", "A/C NO"]): continue
                     if re.match(r'^\d{1,2}[\s\-/]+(?:[A-Z]{3}|\d{1,2})[\s\-/]+\d{2,4}', raw_name): continue
                     try:
                         numbers = [clean_val(c) for c in row[1:] if re.search(r'\d', str(c))]
