@@ -8,10 +8,67 @@ import re
 import numpy as np
 from datetime import datetime, timedelta
 
-# --- 1. SYSTEM CONFIG & STANDARDIZATION ---
+# --- 1. SYSTEM CONFIG ---
 st.set_page_config(layout="wide", page_title="CLP Wealth Center", page_icon="🏦")
 
-# --- 2. ASSET REGISTRY ---
+# --- 2. CUSTOM CSS THEME ---
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+
+section[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #071428 0%, #0d2240 60%, #0a1a35 100%);
+}
+section[data-testid="stSidebar"] * { color: #dce8f5 !important; }
+section[data-testid="stSidebar"] h1,
+section[data-testid="stSidebar"] h2,
+section[data-testid="stSidebar"] h3 { color: #f0b429 !important; }
+section[data-testid="stSidebar"] hr { border-color: #1e3a6b !important; }
+section[data-testid="stSidebar"] .stButton > button {
+    background: transparent; border: 1px solid #f0b429;
+    color: #f0b429 !important; border-radius: 8px; width: 100%;
+    font-weight: 600; letter-spacing: 0.5px;
+}
+section[data-testid="stSidebar"] .stButton > button:hover {
+    background: rgba(240, 180, 41, 0.12);
+}
+section[data-testid="stSidebar"] label { color: #8fa8cc !important; font-size: 0.8rem !important; }
+
+.kpi-card {
+    background: linear-gradient(135deg, #0d2240 0%, #1a3a6b 100%);
+    border: 1px solid #2a4a8b; border-radius: 14px;
+    padding: 22px 20px 18px; text-align: center;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+.kpi-icon { font-size: 1.5rem; margin-bottom: 6px; }
+.kpi-label { font-size: 0.7rem; color: #8fa8cc; text-transform: uppercase; letter-spacing: 1.4px; margin-bottom: 8px; }
+.kpi-value { font-size: 1.85rem; font-weight: 700; color: #f0b429; line-height: 1.1; }
+
+.tab-subtitle {
+    color: #6b7f9e; font-size: 0.87rem;
+    margin: -6px 0 20px 0; padding-bottom: 14px;
+    border-bottom: 1px solid #eaecf0;
+}
+.conc-alert {
+    background: rgba(240, 180, 41, 0.08); border-left: 4px solid #f0b429;
+    border-radius: 0 8px 8px 0; padding: 12px 16px;
+    margin: 0 0 20px 0; font-size: 0.88rem; color: #7a5c00;
+}
+.feat-grid { display: flex; gap: 14px; margin: 28px 0 10px 0; flex-wrap: wrap; }
+.feat-card {
+    flex: 1; min-width: 160px;
+    background: #f4f8ff; border: 1px solid #d0e2f7;
+    border-radius: 14px; padding: 22px 16px; text-align: center;
+}
+.feat-icon { font-size: 2rem; margin-bottom: 10px; }
+.feat-title { font-weight: 600; font-size: 0.92rem; color: #0d2240; margin-bottom: 6px; }
+.feat-desc { font-size: 0.8rem; color: #6b7f9e; line-height: 1.4; }
+.hide-delta [data-testid="stMetricDelta"] svg { display: none; }
+</style>
+""", unsafe_allow_html=True)
+
+# --- 3. ASSET REGISTRY ---
 MASTER_INTEL = {
     "DBS": {"Rate": 3.24, "PB": 1.55, "Ticker": "D05.SI", "Sector": "Financial Services"},
     "UOB": {"Rate": 1.70, "PB": 1.18, "Ticker": "U11.SI", "Sector": "Financial Services"},
@@ -51,7 +108,8 @@ MASTER_INTEL = {
     "SBDEC17 GX17120W": {"Rate": 0.03, "PB": 1.00, "Ticker": None, "Sector": "Fixed Income"}
 }
 
-def clean_val(v): 
+# --- 4. HELPER FUNCTIONS ---
+def clean_val(v):
     return float(re.sub(r'[^\d.-]', '', str(v))) if v and pd.notnull(v) and str(v).strip() != '' else 0.0
 
 def guess_sector(name):
@@ -66,7 +124,6 @@ def resolve_intel(raw_name):
     name_up = str(raw_name).upper()
     if name_up in MASTER_INTEL:
         return MASTER_INTEL[name_up], name_up
-        
     ALIAS_MAP = {
         "OCBC": ["OVERSEA-CHINESE", "OVERSEA CHINESE", "OCBC"],
         "UOB": ["UNITED OVERSEAS", "UOB"],
@@ -77,55 +134,34 @@ def resolve_intel(raw_name):
         "CITYDEV": ["CITY DEVELOPMENTS"],
         "COMFORTDELGRO": ["COMFORT DELGRO"]
     }
-    
     for clean_name, aliases in ALIAS_MAP.items():
         if any(alias in name_up for alias in aliases):
             return MASTER_INTEL[clean_name], clean_name
-            
     return {"Rate": 0.0, "PB": 1.0, "Ticker": None, "Sector": guess_sector(name_up)}, name_up
 
 def extract_pdf(file):
-    data = []
-    seen = set()
+    data, seen = [], set()
     with pdfplumber.open(file) as pdf:
         for page in pdf.pages:
             for table in page.extract_tables():
                 for row in table:
                     row = [str(c).replace('\n', ' ').strip() for c in row if c is not None and str(c).strip() != '']
                     if len(row) < 3: continue
-                    
                     raw_name = row[0].upper()
-                    
-                    ignore_keywords = ["SECURITY", "BALANCE", "DATE", "TOTAL", "PAGE", "STATEMENT", "PORTFOLIO", "SUB-TOTAL"]
-                    if any(x in raw_name for x in ignore_keywords): 
-                        continue
-                    
-                    if re.match(r'^\d{1,2}[\s\-/]+(?:[A-Z]{3}|\d{1,2})[\s\-/]+\d{2,4}', raw_name):
-                        continue
-                    
+                    if any(x in raw_name for x in ["SECURITY", "BALANCE", "DATE", "TOTAL", "PAGE", "STATEMENT", "PORTFOLIO", "SUB-TOTAL"]): continue
+                    if re.match(r'^\d{1,2}[\s\-/]+(?:[A-Z]{3}|\d{1,2})[\s\-/]+\d{2,4}', raw_name): continue
                     try:
                         numbers = [clean_val(c) for c in row[1:] if re.search(r'\d', str(c))]
                         if len(numbers) >= 2:
-                            qty = numbers[0]
-                            mkt = numbers[-1]
-                            
+                            qty, mkt = numbers[0], numbers[-1]
                             if qty < 1 or mkt <= 0: continue
-                            
                             intel, clean_name = resolve_intel(raw_name)
-                            
                             if clean_name in seen: continue
-                                
-                            data.append({
-                                "Security": clean_name, 
-                                "Sector": intel.get("Sector", guess_sector(clean_name)), 
-                                "Quantity": qty, 
-                                "AUM (SGD)": mkt, 
-                                "DPS": intel["Rate"], 
-                                "P/B Ratio": intel["PB"], 
-                                "Ticker": intel["Ticker"]
-                            })
+                            data.append({"Security": clean_name, "Sector": intel.get("Sector", guess_sector(clean_name)),
+                                         "Quantity": qty, "AUM (SGD)": mkt, "DPS": intel["Rate"],
+                                         "P/B Ratio": intel["PB"], "Ticker": intel["Ticker"]})
                             seen.add(clean_name)
-                    except Exception as e:
+                    except Exception:
                         continue
     return pd.DataFrame(data)
 
@@ -135,223 +171,478 @@ def color_returns(val):
         elif val < 0: return 'background-color: rgba(214, 48, 49, 0.15); color: #C0392B; font-weight: bold;'
     return ''
 
-# --- 3. DASHBOARD UI ---
-st.sidebar.header("🏦 CLP COMMAND CENTER")
-uploaded_file = st.sidebar.file_uploader("Step 1: Upload Portfolio PDF", type="pdf")
+def kpi_card(icon, label, value):
+    st.markdown(f'<div class="kpi-card"><div class="kpi-icon">{icon}</div><div class="kpi-label">{label}</div><div class="kpi-value">{value}</div></div>', unsafe_allow_html=True)
 
+def health_gauge(score):
+    color = "#27AE60" if score >= 70 else "#F39C12" if score >= 40 else "#E74C3C"
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number", value=score,
+        number={"suffix": "/100", "font": {"size": 28, "color": color}},
+        title={"text": "Portfolio Health Score", "font": {"size": 15, "color": "#555"}},
+        gauge={"axis": {"range": [0, 100], "tickcolor": "#aaa"}, "bar": {"color": color, "thickness": 0.28},
+               "bgcolor": "white", "borderwidth": 0,
+               "steps": [{"range": [0, 40], "color": "rgba(231,76,60,0.12)"},
+                          {"range": [40, 70], "color": "rgba(243,156,18,0.12)"},
+                          {"range": [70, 100], "color": "rgba(39,174,96,0.12)"}],
+               "threshold": {"line": {"color": color, "width": 4}, "thickness": 0.8, "value": score}}
+    ))
+    fig.update_layout(height=260, margin=dict(t=40, b=0, l=20, r=20), paper_bgcolor="white")
+    return fig
+
+def project_dividends(div_series, annual_income_sgd, n_months=12):
+    """
+    Project upcoming dividend payments for the next n_months.
+
+    Uses div_series for TIMING only (which calendar months dividends land in).
+    Uses annual_income_sgd from MASTER_INTEL for AMOUNTS, so totals match
+    the Annualised Income KPI card.
+
+    Shows from start of the current month so same-month payments are never
+    silently dropped (ex-div date vs payment date can differ by weeks).
+    """
+    if annual_income_sgd <= 0 or div_series is None or len(div_series) < 1:
+        return []
+    s = div_series.copy()
+    if hasattr(s.index, 'tz') and s.index.tz is not None:
+        s.index = s.index.tz_localize(None)
+    cutoff = pd.Timestamp.now() - pd.DateOffset(years=3)
+    recent = s[s.index > cutoff]
+    if len(recent) < 1:
+        recent = s.tail(6)
+    if len(recent) == 0:
+        return []
+
+    dates = recent.index.sort_values()
+
+    # Payment frequency from median inter-payment interval
+    if len(dates) >= 2:
+        intervals = [(dates[i + 1] - dates[i]).days for i in range(len(dates) - 1)]
+        avg_interval = int(np.median(intervals))
+    else:
+        avg_interval = 365
+    payments_per_year = max(1, round(365 / avg_interval))
+    income_per_payment = annual_income_sgd / payments_per_year
+
+    # Typical payment months: use the most recent full annual cycle
+    recent_1y = recent[recent.index >= recent.index.max() - pd.DateOffset(years=1)]
+    typical_months = sorted(set(recent_1y.index.month.tolist())) if len(recent_1y) >= 1 else sorted(set(recent.index.month.tolist()))
+    # Guard: if history gives more months than frequency, take the most frequent ones
+    if len(typical_months) > payments_per_year:
+        from collections import Counter
+        month_counts = Counter(recent.index.month.tolist())
+        typical_months = sorted([m for m, _ in month_counts.most_common(payments_per_year)])
+
+    # Typical pay-day per month from history (use last occurrence of that month)
+    pay_day_map = {}
+    for m in typical_months:
+        same_month = recent[recent.index.month == m]
+        pay_day_map[m] = int(same_month.index[-1].day) if not same_month.empty else 15
+
+    # Project: include from the START of the current month so same-month
+    # dividends are shown even if the historical pay-day has just passed
+    now = pd.Timestamp.now()
+    month_start = pd.Timestamp(now.year, now.month, 1)
+    end_date = month_start + pd.DateOffset(months=n_months)
+    projections = []
+
+    for offset in range(n_months + 2):
+        check = month_start + pd.DateOffset(months=offset)
+        if check > end_date:
+            break
+        if check.month in typical_months:
+            pay_day = min(pay_day_map.get(check.month, 15), 28)
+            proj_date = pd.Timestamp(check.year, check.month, pay_day)
+            projections.append((proj_date, income_per_payment))
+
+    return projections
+
+@st.cache_data(ttl=3600)
+def fetch_prices_batch(tickers_str, period="2y"):
+    """Batch-download closing prices; returns DataFrame with tickers as columns."""
+    tickers = [t.strip() for t in tickers_str.split(",") if t.strip()]
+    result = {}
+    if not tickers:
+        return pd.DataFrame()
+    try:
+        raw = yf.download(tickers, period=period, auto_adjust=True, progress=False)
+        if isinstance(raw.columns, pd.MultiIndex):
+            close_df = raw['Close']
+            for ticker in tickers:
+                if ticker in close_df.columns:
+                    s = close_df[ticker].dropna()
+                    if not s.empty:
+                        result[ticker] = s
+        else:
+            c = raw['Close'] if 'Close' in raw.columns else raw.iloc[:, 0]
+            if isinstance(c, pd.DataFrame): c = c.iloc[:, 0]
+            if not c.dropna().empty:
+                result[tickers[0]] = c
+    except Exception:
+        pass
+    for ticker in [t for t in tickers if t not in result]:
+        try:
+            h = yf.download(ticker, period=period, auto_adjust=True, progress=False)
+            c = h['Close'].iloc[:, 0] if isinstance(h['Close'], pd.DataFrame) else h['Close']
+            if not c.dropna().empty:
+                result[ticker] = c
+        except Exception:
+            continue
+    return pd.DataFrame(result) if result else pd.DataFrame()
+
+@st.cache_data(ttl=3600)
+def compute_risk_metrics(tickers_str, names_str, rf_annual=0.037):
+    tickers = [t.strip() for t in tickers_str.split(",") if t.strip()]
+    names = [n.strip() for n in names_str.split("|") if n.strip()]
+    prices = fetch_prices_batch(tickers_str, period="2y")
+    try:
+        sti_raw = yf.download("^STI", period="2y", auto_adjust=True, progress=False)
+        sti = sti_raw['Close'].iloc[:, 0] if isinstance(sti_raw['Close'], pd.DataFrame) else sti_raw['Close']
+        sti_ret = sti.pct_change().dropna()
+    except Exception:
+        sti_ret = pd.Series(dtype=float)
+    results = []
+    for ticker, name in zip(tickers, names):
+        try:
+            if ticker not in prices.columns or prices[ticker].dropna().shape[0] < 30:
+                continue
+            price = prices[ticker].dropna()
+            ret = price.pct_change().dropna()
+            vol = float(ret.std() * np.sqrt(252))
+            ann_ret = float((1 + ret.mean()) ** 252 - 1)
+            sharpe = (ann_ret - rf_annual) / vol if vol > 0 else 0.0
+            beta = None
+            if not sti_ret.empty:
+                common = ret.index.intersection(sti_ret.index)
+                if len(common) > 30:
+                    cov_m = np.cov(ret.loc[common].values, sti_ret.loc[common].values)
+                    beta = round(float(cov_m[0, 1] / cov_m[1, 1]), 3) if cov_m[1, 1] != 0 else None
+            var95 = float(np.percentile(ret, 5)) * 100
+            cumret = (1 + ret).cumprod()
+            max_dd = float(((cumret - cumret.cummax()) / cumret.cummax()).min()) * 100
+            results.append({"Security": name, "Ticker": ticker,
+                             "Ann. Volatility (%)": round(vol * 100, 2),
+                             "Ann. Return (%)": round(ann_ret * 100, 2),
+                             "Sharpe Ratio": round(sharpe, 3),
+                             "Beta (vs STI)": beta,
+                             "Daily VaR 95% (%)": round(var95, 2),
+                             "Max Drawdown (%)": round(max_dd, 2)})
+        except Exception:
+            continue
+    return pd.DataFrame(results)
+
+@st.cache_data(ttl=3600)
+def get_dividend_data(tickers_str, names_str):
+    tickers = [t.strip() for t in tickers_str.split(",") if t.strip()]
+    names = [n.strip() for n in names_str.split("|") if n.strip()]
+    result = {}
+    for ticker, name in zip(tickers, names):
+        try:
+            divs = yf.Ticker(ticker).dividends
+            if not divs.empty:
+                result[name] = divs
+        except Exception:
+            continue
+    return result
+
+@st.cache_data(ttl=3600)
+def compute_efficient_frontier(tickers_str, names_str, weights_str, rf_annual=0.037, n_sim=3000):
+    tickers = [t.strip() for t in tickers_str.split(",") if t.strip()]
+    names = [n.strip() for n in names_str.split("|") if n.strip()]
+    curr_w_raw = [float(w) for w in weights_str.split(",") if w.strip()]
+    if len(tickers) < 2:
+        return None
+    prices = fetch_prices_batch(tickers_str, period="3y")
+    if prices.empty:
+        return None
+    valid_tickers = [t for t in tickers if t in prices.columns and prices[t].notna().sum() > 90]
+    if len(valid_tickers) < 2:
+        return None
+    idx_map = {t: i for i, t in enumerate(tickers)}
+    valid_names = [names[idx_map[t]] for t in valid_tickers]
+    raw_w = [curr_w_raw[idx_map[t]] for t in valid_tickers]
+    total_w = sum(raw_w)
+    valid_curr_w = [w / total_w for w in raw_w] if total_w > 0 else [1/len(valid_tickers)] * len(valid_tickers)
+    p = prices[valid_tickers].ffill().dropna()
+    if len(p) < 60:
+        return None
+    ret = p.pct_change().dropna()
+    mean_r = ret.mean().values * 252
+    cov = ret.cov().values * 252
+    np.random.seed(42)
+    mc_r, mc_v, mc_s, mc_w = [], [], [], []
+    for _ in range(n_sim):
+        w = np.random.dirichlet(np.ones(len(valid_tickers)))
+        r = float(np.dot(w, mean_r))
+        v = float(np.sqrt(max(float(np.dot(w, np.dot(cov, w))), 0)))
+        s = (r - rf_annual) / v if v > 0 else 0.0
+        mc_r.append(r); mc_v.append(v); mc_s.append(s); mc_w.append(w.tolist())
+    wc = np.array(valid_curr_w)
+    cr = float(np.dot(wc, mean_r))
+    cv = float(np.sqrt(max(float(np.dot(wc, np.dot(cov, wc))), 0)))
+    cs = (cr - rf_annual) / cv if cv > 0 else 0.0
+    ms_i, mv_i = int(np.argmax(mc_s)), int(np.argmin(mc_v))
+    return {"names": valid_names, "mc_rets": mc_r, "mc_vols": mc_v, "mc_sharpes": mc_s, "mc_ws": mc_w,
+            "curr": {"ret": cr, "vol": cv, "sharpe": cs, "weights": valid_curr_w},
+            "max_sharpe": {"ret": mc_r[ms_i], "vol": mc_v[ms_i], "sharpe": mc_s[ms_i], "weights": mc_w[ms_i]},
+            "min_vol": {"ret": mc_r[mv_i], "vol": mc_v[mv_i], "sharpe": mc_s[mv_i], "weights": mc_w[mv_i]}}
+
+@st.cache_data(ttl=3600)
+def scan_portfolio_returns(_data_hash, tickers_and_names):
+    m = {}
+    for ticker, name in tickers_and_names:
+        try:
+            h = yf.download(ticker, period="5y", auto_adjust=True, progress=False)
+            if not h.empty:
+                c = h['Close'].iloc[:, 0] if isinstance(h['Close'], pd.DataFrame) else h['Close']
+                m[name] = float(c.iloc[-1]) / float(c.iloc[0]) - 1.0
+        except Exception:
+            continue
+    return m
+
+@st.cache_data(ttl=3600)
+def load_benchmark(ticker, years):
+    start = datetime.now() - timedelta(days=years * 365)
+    h_a = yf.download(ticker, start=start, end=datetime.now(), auto_adjust=True, progress=False)
+    h_s = yf.download("^STI", start=start, end=datetime.now(), auto_adjust=True, progress=False)
+    return h_a, h_s
+
+# --- 5. SIDEBAR ---
+st.sidebar.markdown("""
+<div style='text-align:center; padding:16px 0 22px 0;'>
+  <div style='font-size:2.4rem;'>🏦</div>
+  <div style='font-size:1.05rem; font-weight:700; color:#f0b429; letter-spacing:1.5px; margin-top:6px;'>CLP WEALTH CENTER</div>
+  <div style='font-size:0.72rem; color:#8fa8cc; margin-top:4px; letter-spacing:0.5px;'>Portfolio Intelligence Platform</div>
+</div>
+""", unsafe_allow_html=True)
+st.sidebar.markdown("**Upload Portfolio Statement**")
+uploaded_file = st.sidebar.file_uploader("PDF only", type="pdf", label_visibility="collapsed")
+st.sidebar.markdown("---")
 with st.sidebar.expander("⚙️ App Maintenance Guide"):
     st.markdown("""
-    **The Golden Rule of New Stocks**
-    
-    If you purchase a brand new asset that you have never owned before, the app will automatically calculate its AUM, but it will *hide* it from the Market Benchmark and Audit tabs to prevent crashes.
-    
-    **To unlock full auditing for a new stock:**
-    1. Open `app.py` in your GitHub repository.
-    2. Locate the `MASTER_INTEL` list near the top of the code.
-    3. Add your new stock name and its `.SI` ticker symbol to the list. 
-    *(Example: `"PANUNITED": {"Rate": 0.0, "PB": 1.0, "Ticker": "P52.SI", "Sector": "Industrials"}`)*
-    4. Click **Commit changes**. Streamlit will instantly refresh your live app!
-    """)
-st.sidebar.markdown("---")
+**The Golden Rule of New Stocks**
 
-t1, t2, t3, t4 = st.tabs(["📊 Asset Discovery", "📈 Market Benchmark", "📂 Verification Hub", "📜 Strategic Advisory"])
+If you purchase a brand new asset, the app calculates AUM automatically but hides it from Market Benchmark and Audit tabs.
 
+**To unlock full auditing:**
+1. Open `app.py` in your GitHub repository.
+2. Locate the `MASTER_INTEL` dict near the top.
+3. Add your stock:
+`"PANUNITED": {"Rate": 0.0, "PB": 1.0, "Ticker": "P52.SI", "Sector": "Industrials"}`
+4. Click **Commit changes** — the live app refreshes instantly.
+""")
+
+# --- 6. TABS ---
+t1, t2, t3, t4, t5, t6, t7 = st.tabs([
+    "📊 Asset Discovery", "📈 Market Benchmark", "📂 Verification Hub",
+    "📜 Strategic Advisory", "⚠️ Risk Analytics", "📅 Dividend Calendar", "🎯 Portfolio Optimisation"
+])
+
+# --- 7. MAIN CONTENT ---
 if uploaded_file:
-    df_raw = extract_pdf(uploaded_file)
-    if not df_raw.empty:
+    with st.spinner("Parsing portfolio statement — please wait..."):
+        df_raw = extract_pdf(uploaded_file)
+
+    if df_raw.empty:
+        st.error("Could not extract any holdings from this PDF. Please check the file format.")
+    else:
         all_sects = sorted(df_raw['Sector'].unique())
         sel_sects = st.sidebar.multiselect("Filter Analysis Universe", all_sects, default=all_sects)
         df = df_raw[df_raw['Sector'].isin(sel_sects)].copy()
-        
-        # --- ENHANCED METRICS & LABEL ENGINE ---
+
         total_aum = df['AUM (SGD)'].sum()
-        
         df["Annual Dividend (SGD)"] = (df["Quantity"] * df["DPS"]).round(2)
         total_inc = df['Annual Dividend (SGD)'].sum()
-        
         df["Dividend Yield (%)"] = (df["Annual Dividend (SGD)"] / df["AUM (SGD)"] * 100).round(2)
-        
-        # Calculate strict mathematical weights
         df["%Portfolio"] = (df["AUM (SGD)"] / total_aum * 100).round(2) if total_aum > 0 else 0
         df["%Income"] = (df["Annual Dividend (SGD)"] / total_inc * 100).round(2) if total_inc > 0 else 0
-        
-        # Bake the weights directly into the display labels using 1 decimal place for neatness
         df["Alloc_Label"] = df.apply(lambda r: f"{r['Security']} ({r['%Portfolio']:.1f}%)", axis=1)
         df["Inc_Label"] = df.apply(lambda r: f"{r['Security']} ({r['%Income']:.1f}%)", axis=1)
-        
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Total AUM", f"S${total_aum:,.2f}")
-        m2.metric("Annualized Income", f"S${total_inc:,.2f}")
-        m3.metric("Portfolio Yield", f"{(total_inc/total_aum*100):.2f}%" if total_aum > 0 else "0.00%")
+        port_yield = (total_inc / total_aum * 100) if total_aum > 0 else 0
 
+        sector_pct = df.groupby('Sector')["%Portfolio"].sum()
+        top_sector_pct = sector_pct.max()
+        if top_sector_pct > 40:
+            st.markdown(f'<div class="conc-alert">⚠️ <strong>Concentration Alert:</strong> <em>{sector_pct.idxmax()}</em> makes up <strong>{top_sector_pct:.1f}%</strong> of your portfolio. Consider diversifying to reduce sector-specific risk.</div>', unsafe_allow_html=True)
+
+        k1, k2, k3 = st.columns(3)
+        with k1: kpi_card("💼", "Total AUM", f"S${total_aum:,.0f}")
+        with k2: kpi_card("💰", "Annualised Income", f"S${total_inc:,.0f}")
+        with k3: kpi_card("📈", "Portfolio Yield", f"{port_yield:.2f}%")
+
+        # ══════════════════════════════════════════
+        # TAB 1 — ASSET DISCOVERY
+        # ══════════════════════════════════════════
         with t1:
+            st.markdown('<p class="tab-subtitle">Visualise how your capital and income are distributed across sectors and individual holdings.</p>', unsafe_allow_html=True)
             c1, c2 = st.columns(2)
-            
             with c1:
-                st.markdown("<h4 style='text-align: center;'>Capital Allocation</h4>", unsafe_allow_html=True)
-                # Map the Treemap to use the new 'Alloc_Label'
+                st.markdown("<h4 style='text-align:center;'>Capital Allocation</h4>", unsafe_allow_html=True)
                 fig_tree = px.treemap(df, path=['Sector', 'Alloc_Label'], values='AUM (SGD)', color='Sector')
-                fig_tree.update_layout(margin=dict(t=10, l=10, r=10, b=10)) 
+                fig_tree.update_layout(margin=dict(t=10, l=10, r=10, b=10))
                 st.plotly_chart(fig_tree, use_container_width=True)
-                
             with c2:
-                st.markdown("<h4 style='text-align: center;'>Income Stream</h4>", unsafe_allow_html=True)
-                # Map the Sunburst to use the new 'Inc_Label'
+                st.markdown("<h4 style='text-align:center;'>Income Stream</h4>", unsafe_allow_html=True)
                 fig_sun = px.sunburst(df, path=['Sector', 'Inc_Label'], values='Annual Dividend (SGD)', color='Sector')
                 fig_sun.update_layout(margin=dict(t=10, l=10, r=10, b=10))
                 st.plotly_chart(fig_sun, use_container_width=True)
-            
             st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown("<h4 style='text-align: center;'>Asset Efficiency Matrix: Valuation vs. Yield</h4>", unsafe_allow_html=True)
-            fig_scatter = px.scatter(df[df['Sector']!='Fixed Income'], x="P/B Ratio", y="Dividend Yield (%)", size="AUM (SGD)", color="Sector", hover_name="Security", template="plotly_dark", height=500)
+            st.markdown("<h4 style='text-align:center;'>Asset Efficiency Matrix: Valuation vs. Yield</h4>", unsafe_allow_html=True)
+            fig_scatter = px.scatter(df[df['Sector'] != 'Fixed Income'], x="P/B Ratio", y="Dividend Yield (%)",
+                                     size="AUM (SGD)", color="Sector", hover_name="Security", template="plotly_dark", height=500)
             fig_scatter.update_layout(margin=dict(t=20, l=10, r=10, b=10))
             st.plotly_chart(fig_scatter, use_container_width=True)
 
+        # ══════════════════════════════════════════
+        # TAB 2 — MARKET BENCHMARK
+        # ══════════════════════════════════════════
         with t2:
-            st.markdown("### 📈 Total Return vs STI Benchmark")
+            st.markdown('<p class="tab-subtitle">Compare any holding\'s total return against the STI benchmark index over your chosen time horizon.</p>', unsafe_allow_html=True)
             eligible = df[df['Ticker'].notnull()]['Security'].unique()
-            
             if len(eligible) > 0:
                 c_s, c_i = st.columns(2)
                 target = c_s.selectbox("Select Asset", options=eligible)
-                yrs = c_i.selectbox("Horizon", [1, 5, 10, 15, 20], format_func=lambda x: f"{x} Years")
-                
-                if st.button("Launch Comparison"):
-                    tick = df[df['Security'] == target]['Ticker'].iloc[0] 
-                    h_a = yf.download(tick, start=(datetime.now()-timedelta(days=yrs*365)), end=datetime.now(), auto_adjust=True, progress=False)
-                    h_s = yf.download("^STI", start=(datetime.now()-timedelta(days=yrs*365)), end=datetime.now(), auto_adjust=True, progress=False)
-                    
-                    if not h_a.empty and not h_s.empty:
-                        c_a = h_a['Close'].iloc[:, 0] if isinstance(h_a['Close'], pd.DataFrame) else h_a['Close']
-                        c_s = h_s['Close'].iloc[:, 0] if isinstance(h_s['Close'], pd.DataFrame) else h_s['Close']
-                        asset_norm = (c_a / float(c_a.iloc[0])) * 100
-                        sti_norm = (c_s / float(c_s.iloc[0])) * 100
-                        
-                        fig = go.Figure()
-                        fig.add_trace(go.Scatter(x=asset_norm.index, y=asset_norm, name=target, line=dict(color='#27AE60', width=3)))
-                        fig.add_trace(go.Scatter(x=sti_norm.index, y=sti_norm, name="STI Benchmark", line=dict(color='#95A5A6', dash='dot')))
-                        st.plotly_chart(fig, use_container_width=True)
+                yrs = c_i.selectbox("Time Horizon", [1, 5, 10, 15, 20], format_func=lambda x: f"{x} Year{'s' if x > 1 else ''}")
+                with st.spinner(f"Loading {yrs}-year data for {target} vs STI..."):
+                    tick = df[df['Security'] == target]['Ticker'].iloc[0]
+                    h_a, h_s = load_benchmark(tick, yrs)
+                if not h_a.empty and not h_s.empty:
+                    c_a = h_a['Close'].iloc[:, 0] if isinstance(h_a['Close'], pd.DataFrame) else h_a['Close']
+                    c_sti = h_s['Close'].iloc[:, 0] if isinstance(h_s['Close'], pd.DataFrame) else h_s['Close']
+                    asset_norm = (c_a / float(c_a.iloc[0])) * 100
+                    sti_norm = (c_sti / float(c_sti.iloc[0])) * 100
+                    final_asset, final_sti = float(asset_norm.iloc[-1]), float(sti_norm.iloc[-1])
+                    bm1, bm2, bm3 = st.columns(3)
+                    bm1.metric(f"{target} Return", f"{final_asset - 100:+.1f}%")
+                    bm2.metric("STI Return", f"{final_sti - 100:+.1f}%")
+                    bm3.metric("Alpha vs STI", f"{final_asset - final_sti:+.1f}%", delta_color="normal")
+                    fig_bm = go.Figure()
+                    fig_bm.add_trace(go.Scatter(x=asset_norm.index, y=asset_norm, name=target,
+                                                line=dict(color='#27AE60', width=2.5), fill='tozeroy', fillcolor='rgba(39,174,96,0.06)'))
+                    fig_bm.add_trace(go.Scatter(x=sti_norm.index, y=sti_norm, name="STI Benchmark",
+                                                line=dict(color='#95A5A6', width=2, dash='dot')))
+                    fig_bm.add_hline(y=100, line_dash="solid", line_color="#ccc", line_width=1)
+                    fig_bm.update_layout(template="plotly_white", height=420, yaxis_title="Indexed Return (Base = 100)",
+                                         legend=dict(orientation="h", y=1.08), margin=dict(t=20, l=10, r=10, b=10))
+                    st.plotly_chart(fig_bm, use_container_width=True)
+                else:
+                    st.warning("Could not retrieve market data for this asset. Try a different selection.")
             else:
                 st.warning("No benchmarkable assets found in the current selection.")
 
+        # ══════════════════════════════════════════
+        # TAB 3 — VERIFICATION HUB
+        # ══════════════════════════════════════════
         with t3:
+            st.markdown('<p class="tab-subtitle">Drill into each sector\'s holdings — review quantity, DPS, yield, and AUM contribution at a glance.</p>', unsafe_allow_html=True)
+            _, dl_col = st.columns([3, 1])
+            with dl_col:
+                csv_data = df[['Security', 'Sector', 'Quantity', 'DPS', 'Annual Dividend (SGD)', 'Dividend Yield (%)', '%Portfolio', 'AUM (SGD)']].to_csv(index=False)
+                st.download_button("📥 Export to CSV", data=csv_data,
+                                   file_name=f"portfolio_{datetime.now().strftime('%Y%m%d')}.csv",
+                                   mime="text/csv", use_container_width=True)
             for s in sorted(df['Sector'].unique()):
-                sdf = df[df['Sector']==s].copy().sort_values('AUM (SGD)', ascending=False)
-                sdf.insert(0, 'S/N', range(1, len(sdf)+1))
-                with st.expander(f"{s.upper()} VERIFICATION PANEL"):
+                sdf = df[df['Sector'] == s].copy().sort_values('AUM (SGD)', ascending=False)
+                sdf.insert(0, 'S/N', range(1, len(sdf) + 1))
+                with st.expander(f"{s.upper()}  ·  {len(sdf)} holding{'s' if len(sdf) > 1 else ''}"):
                     col_chart, col_table = st.columns([1, 1])
                     with col_chart:
                         st.plotly_chart(px.bar(sdf, x='Security', y='AUM (SGD)', color='Dividend Yield (%)', color_continuous_scale='Blues'), use_container_width=True)
                     with col_table:
-                        st.dataframe(sdf[['S/N','Security','Quantity','DPS','Annual Dividend (SGD)','Dividend Yield (%)','%Portfolio','AUM (SGD)']].style.format({
-                            'DPS': '{:.2f}', 'Annual Dividend (SGD)': '{:,.2f}', 'Dividend Yield (%)': '{:.2f}%', '%Portfolio': '{:.2f}%', 'AUM (SGD)': '{:,.2f}'
-                        }).background_gradient(subset=['Dividend Yield (%)'], cmap='Blues', vmin=0), hide_index=True, use_container_width=True)
+                        st.dataframe(sdf[['S/N', 'Security', 'Quantity', 'DPS', 'Annual Dividend (SGD)', 'Dividend Yield (%)', '%Portfolio', 'AUM (SGD)']].style.format(
+                            {'DPS': '{:.2f}', 'Annual Dividend (SGD)': '{:,.2f}', 'Dividend Yield (%)': '{:.2f}%', '%Portfolio': '{:.2f}%', 'AUM (SGD)': '{:,.2f}'}
+                        ).background_gradient(subset=['Dividend Yield (%)'], cmap='Blues', vmin=0), hide_index=True, use_container_width=True)
 
+        # ══════════════════════════════════════════
+        # TAB 4 — STRATEGIC ADVISORY
+        # ══════════════════════════════════════════
         with t4:
-            st.markdown("## 📜 Strategic Advisory & Health Audit")
-            
-            @st.cache_data(ttl=3600)
-            def scan_p(_data):
-                m = {}
-                for _, row in _data[_data['Ticker'].notnull()].iterrows():
-                    try:
-                        h = yf.download(row['Ticker'], period="5y", auto_adjust=True, progress=False)
-                        if not h.empty:
-                            c = h['Close'].iloc[:, 0] if isinstance(h['Close'], pd.DataFrame) else h['Close']
-                            m[row['Security']] = float(c.iloc[-1]) / float(c.iloc[0]) - 1.0
-                    except: continue
-                return m
-            
-            p_map = scan_p(df)
+            st.markdown('<p class="tab-subtitle">Audit your portfolio health, identify wealth creators and destroyers, and simulate rebalancing scenarios.</p>', unsafe_allow_html=True)
+            eligible_df = df[df['Ticker'].notnull()]
+            tickers_and_names = list(zip(eligible_df['Ticker'], eligible_df['Security']))
+            data_hash = str(sorted([t for t, _ in tickers_and_names]))
+            p_map = scan_portfolio_returns(data_hash, tickers_and_names)
             losers = [k for k, v in p_map.items() if float(v) < 0.0]
             winners = sorted([k for k, v in p_map.items() if float(v) >= 0.0], key=lambda x: float(p_map[x]), reverse=True)[:10]
-
-            col_a, col_b = st.columns(2)
-            health = 100 - (len(losers) * 5)
-            with col_a:
-                st.metric("Portfolio Health Score", f"{max(health, 0)}/100")
+            health = max(100 - (len(losers) * 5), 0)
+            h_col1, h_col2 = st.columns([1, 1])
+            with h_col1:
+                st.plotly_chart(health_gauge(health), use_container_width=True)
+            with h_col2:
+                st.markdown("<br><br>", unsafe_allow_html=True)
                 top_divs = df.nlargest(2, 'Annual Dividend (SGD)')['Security'].tolist()
                 anchor_text = f"**{', '.join(top_divs)}**" if top_divs else "diversified cash holdings"
-                st.markdown(f"**Strengths:** Core stability in {anchor_text}.")
-            with col_b:
-                st.markdown(f"**Priority:** Investigate **{len(losers)}** assets underperforming capital benchmarks.")
-
+                st.markdown(f"**Strengths:** Core income stability anchored by {anchor_text}.")
+                st.markdown(f"**Priority:** Investigate **{len(losers)}** asset{'s' if len(losers) != 1 else ''} underperforming capital benchmarks over 5 years.")
+                if health >= 70: st.success("Portfolio is in **good health**. Focus on growth and income optimisation.")
+                elif health >= 40: st.warning("Portfolio health is **moderate**. Consider reviewing underperformers.")
+                else: st.error("Portfolio health is **below target**. Action on losers is recommended.")
             st.markdown("---")
-            
             c_aud1, c_aud2 = st.columns(2)
             with c_aud1:
                 st.markdown("### 💎 Wealth Creator Audit")
                 if len(winners) > 0:
                     sel_w = st.multiselect("High-Performers", options=winners, default=winners[:2])
-                    wy = st.multiselect("Creator Horizons", options=[5, 10, 15, 20], default=[5, 10], key="wy")
+                    wy = st.multiselect("Horizons (Years)", options=[5, 10, 15, 20], default=[5, 10], key="wy")
                     if st.button("📈 Audit Creators"):
                         res_w = []
                         for n in sel_w:
                             rd = {"Security": n}
                             for y in wy:
                                 tick = df[df['Security'] == n]['Ticker'].iloc[0]
-                                h = yf.download(tick, start=(datetime.now()-timedelta(days=y*365)), end=datetime.now(), auto_adjust=True, progress=False)
+                                h = yf.download(tick, start=(datetime.now() - timedelta(days=y * 365)), end=datetime.now(), auto_adjust=True, progress=False)
                                 if not h.empty:
                                     c = h['Close'].iloc[:, 0] if isinstance(h['Close'], pd.DataFrame) else h['Close']
                                     rd[f"{y}Y Total Return"] = (float(c.iloc[-1]) / float(c.iloc[0]) - 1.0) * 100
                             res_w.append(rd)
                         df_w = pd.DataFrame(res_w)
-                        st.dataframe(df_w.style.format({c: "{:.2f}%" for c in df_w.columns if "Return" in c}, na_rep="-").map(color_returns), use_container_width=True, hide_index=True)
+                        st.dataframe(df_w.style.format({col: "{:.2f}%" for col in df_w.columns if "Return" in col}, na_rep="-").map(color_returns), use_container_width=True, hide_index=True)
                 else:
-                    st.info("No positive returning assets found in the current selection.")
-
+                    st.info("No positive-returning assets found in the current selection.")
             with c_aud2:
                 st.markdown("### 🚨 Wealth Destroyer Audit")
                 if len(losers) > 0:
                     sel_l = st.multiselect("Suspects", options=losers)
-                    ly = st.multiselect("Destroyer Horizons", options=[5, 10, 15, 20], default=[5, 10], key="ly")
-                    if st.button("🚀 Audit Destroyers"):
+                    ly = st.multiselect("Horizons (Years)", options=[5, 10, 15, 20], default=[5, 10], key="ly")
+                    if st.button("🔍 Audit Destroyers"):
                         res_l = []
                         for n in sel_l:
                             rd = {"Security": n}
                             for y in ly:
                                 tick = df[df['Security'] == n]['Ticker'].iloc[0]
-                                h = yf.download(tick, start=(datetime.now()-timedelta(days=y*365)), end=datetime.now(), auto_adjust=True, progress=False)
+                                h = yf.download(tick, start=(datetime.now() - timedelta(days=y * 365)), end=datetime.now(), auto_adjust=True, progress=False)
                                 if not h.empty:
                                     c = h['Close'].iloc[:, 0] if isinstance(h['Close'], pd.DataFrame) else h['Close']
                                     rd[f"{y}Y Total Return"] = (float(c.iloc[-1]) / float(c.iloc[0]) - 1.0) * 100
                             res_l.append(rd)
                         df_l = pd.DataFrame(res_l)
-                        st.dataframe(df_l.style.format({c: "{:.2f}%" for c in df_l.columns if "Return" in c}, na_rep="-").map(color_returns), use_container_width=True, hide_index=True)
+                        st.dataframe(df_l.style.format({col: "{:.2f}%" for col in df_l.columns if "Return" in col}, na_rep="-").map(color_returns), use_container_width=True, hide_index=True)
                 else:
-                    st.success("No wealth destroying assets detected!")
-
-            st.caption("*High Performers and Suspects are selected based on their last 5-Year Total Return.*")
-
+                    st.success("No wealth-destroying assets detected!")
+            st.caption("*High Performers and Suspects are classified based on 5-Year Total Return.*")
             st.markdown("---")
-
             st.markdown("### ⚖️ Portfolio Rebalance Simulator")
+            st.markdown('<p class="tab-subtitle" style="margin-top:-10px;">Model the income and yield impact of rotating capital between holdings before committing.</p>', unsafe_allow_html=True)
             col_sell, col_buy = st.columns(2)
-            
             with col_sell:
-                st.error("📉 Source of Funds (Sell Target)")
+                st.error("📉 Source of Funds — Sell")
                 held_losers = [l for l in losers if l in df['Security'].values]
                 sim_sell = st.multiselect("Select assets to liquidate", options=df['Security'].unique(), default=held_losers)
-            
             with col_buy:
-                st.success("📈 Destination of Funds (Buy Target)")
+                st.success("📈 Destination of Funds — Buy")
                 sim_buy = st.multiselect("Select assets to acquire", options=df['Security'].unique(), default=winners[:2] if len(winners) > 1 else None)
-
             if st.button("🔄 Execute Simulation"):
                 if not sim_sell or not sim_buy:
-                    st.warning("⚠️ Please select at least one asset to sell and one to buy to run the simulation.")
+                    st.warning("⚠️ Please select at least one asset to sell and one to buy.")
                 else:
                     curr_aum = total_aum
                     curr_inc = df['Annual Dividend (SGD)'].sum()
                     curr_yield = (curr_inc / curr_aum) * 100 if curr_aum > 0 else 0
-                    
                     df_sell = df[df['Security'].isin(sim_sell)]
                     freed_capital = df_sell['AUM (SGD)'].sum()
                     lost_income = df_sell['Annual Dividend (SGD)'].sum()
-                    
                     new_income_added = 0
                     capital_per_buy = freed_capital / len(sim_buy)
-                    
                     with st.spinner("Fetching live market yields for acquisition targets..."):
                         for b in sim_buy:
                             tick = df[df['Security'] == b]['Ticker'].iloc[0]
@@ -360,26 +651,322 @@ if uploaded_file:
                                 if pd.notnull(tick):
                                     h = yf.download(tick, period="5d", progress=False)
                                     c = h['Close'].iloc[:, 0] if isinstance(h['Close'], pd.DataFrame) else h['Close']
-                                    live_price = float(c.iloc[-1])
-                                    live_yield = dps / live_price
-                                    new_income_added += (capital_per_buy * live_yield)
+                                    new_income_added += capital_per_buy * (dps / float(c.iloc[-1]))
                                 else:
-                                    new_income_added += (capital_per_buy * 0.04)
-                            except:
-                                new_income_added += (capital_per_buy * 0.04)
-
-                    new_aum = curr_aum 
+                                    new_income_added += capital_per_buy * 0.04
+                            except Exception:
+                                new_income_added += capital_per_buy * 0.04
+                    new_aum = curr_aum
                     new_inc = curr_inc - lost_income + new_income_added
                     new_yield = (new_inc / new_aum) * 100
-
-                    st.success(f"**Simulation Complete:** S${freed_capital:,.2f} recycled from {len(sim_sell)} assets into {len(sim_buy)} assets.")
-                    
-                    st.markdown("""<style>[data-testid="stMetricDelta"] svg {display: none;}</style>""", unsafe_allow_html=True)
+                    st.success(f"**Simulation Complete:** S${freed_capital:,.2f} recycled from {len(sim_sell)} asset{'s' if len(sim_sell) != 1 else ''} into {len(sim_buy)} asset{'s' if len(sim_buy) != 1 else ''}.")
+                    st.markdown('<div class="hide-delta">', unsafe_allow_html=True)
                     r1, r2, r3 = st.columns(3)
-                    
                     r1.metric("Projected AUM (Excl. Fees)", f"S${new_aum:,.2f}", "S$0.00 (Neutral)")
-                    r2.metric("Projected Annual Income", f"S${new_inc:,.2f}", f"S${new_inc - curr_inc:,.2f} per year")
-                    r3.metric("Projected Portfolio Yield", f"{new_yield:.2f}%", f"{new_yield - curr_yield:.2f}% shift")
+                    r2.metric("Projected Annual Income", f"S${new_inc:,.2f}", f"S${new_inc - curr_inc:+,.2f} / year")
+                    r3.metric("Projected Portfolio Yield", f"{new_yield:.2f}%", f"{new_yield - curr_yield:+.2f}% shift")
+                    st.markdown('</div>', unsafe_allow_html=True)
+                    st.markdown("#### Before vs After Comparison")
+                    fig_ba = go.Figure()
+                    fig_ba.add_trace(go.Bar(name="Current", x=["Annual Income (SGD)", "Portfolio Yield (%)"],
+                                            y=[curr_inc, curr_yield], marker_color="#95A5A6",
+                                            text=[f"S${curr_inc:,.0f}", f"{curr_yield:.2f}%"], textposition="outside"))
+                    fig_ba.add_trace(go.Bar(name="Projected", x=["Annual Income (SGD)", "Portfolio Yield (%)"],
+                                            y=[new_inc, new_yield], marker_color="#27AE60",
+                                            text=[f"S${new_inc:,.0f}", f"{new_yield:.2f}%"], textposition="outside"))
+                    fig_ba.update_layout(barmode="group", template="plotly_white", height=360,
+                                         legend=dict(orientation="h", y=1.1), margin=dict(t=30, b=20, l=20, r=20),
+                                         yaxis=dict(showticklabels=False, showgrid=False))
+                    st.plotly_chart(fig_ba, use_container_width=True)
 
+        # ══════════════════════════════════════════
+        # TAB 5 — RISK ANALYTICS
+        # ══════════════════════════════════════════
+        with t5:
+            st.markdown('<p class="tab-subtitle">Quantitative risk metrics per holding — volatility, Sharpe ratio, beta vs STI, Value at Risk, and maximum drawdown.</p>', unsafe_allow_html=True)
+            eligible_r = df[df['Ticker'].notnull()]
+            if eligible_r.empty:
+                st.warning("No holdings with market tickers available. Add tickers to MASTER_INTEL to enable this tab.")
+            else:
+                tickers_str_r = ",".join(eligible_r['Ticker'].tolist())
+                names_str_r = "|".join(eligible_r['Security'].tolist())
+                with st.spinner("Computing risk metrics from 2-year price history..."):
+                    risk_df = compute_risk_metrics(tickers_str_r, names_str_r)
+                if risk_df.empty:
+                    st.warning("Could not compute risk metrics. Check your internet connection.")
+                else:
+                    risk_m = risk_df.merge(eligible_r[['Security', 'AUM (SGD)']], on='Security', how='left')
+                    risk_m['Dollar VaR (SGD)'] = (risk_m['Daily VaR 95% (%)'].abs() / 100 * risk_m['AUM (SGD)']).round(0)
+                    total_var = risk_m['Dollar VaR (SGD)'].sum()
+                    beta_vals = risk_df['Beta (vs STI)'].dropna()
+                    rv1, rv2, rv3, rv4 = st.columns(4)
+                    with rv1: kpi_card("🎯", "Est. Daily VaR (95%)", f"S${total_var:,.0f}")
+                    with rv2: kpi_card("📉", "Avg. Ann. Volatility", f"{risk_df['Ann. Volatility (%)'].mean():.1f}%")
+                    with rv3: kpi_card("⚡", "Avg. Sharpe Ratio", f"{risk_df['Sharpe Ratio'].mean():.2f}")
+                    with rv4: kpi_card("📊", "Portfolio Beta", f"{beta_vals.mean():.2f}" if not beta_vals.empty else "N/A")
+                    st.caption("ℹ️ VaR = estimated max 1-day loss at 95% confidence. Sharpe uses SGD T-bill ~3.7% risk-free rate. Beta measures sensitivity to STI.")
+                    st.markdown("---")
+                    st.markdown("#### Holdings Risk Profile")
+                    disp_cols = ['Security', 'Ann. Volatility (%)', 'Ann. Return (%)', 'Sharpe Ratio', 'Beta (vs STI)', 'Daily VaR 95% (%)', 'Max Drawdown (%)']
+                    styled_risk = risk_df[disp_cols].style.format(
+                        {'Ann. Volatility (%)': '{:.2f}%', 'Ann. Return (%)': '{:.2f}%',
+                         'Sharpe Ratio': '{:.3f}', 'Beta (vs STI)': '{:.3f}',
+                         'Daily VaR 95% (%)': '{:.2f}%', 'Max Drawdown (%)': '{:.2f}%'}, na_rep="N/A"
+                    ).background_gradient(subset=['Ann. Volatility (%)'], cmap='YlOrRd') \
+                     .background_gradient(subset=['Sharpe Ratio'], cmap='RdYlGn') \
+                     .background_gradient(subset=['Max Drawdown (%)'], cmap='YlOrRd')
+                    st.dataframe(styled_risk, use_container_width=True, hide_index=True)
+                    st.markdown("---")
+                    rc1, rc2 = st.columns(2)
+                    with rc1:
+                        st.markdown("#### Volatility Ranking")
+                        vf = px.bar(risk_df.sort_values('Ann. Volatility (%)'), x='Ann. Volatility (%)', y='Security',
+                                    orientation='h', color='Ann. Volatility (%)', color_continuous_scale='YlOrRd', template='plotly_white')
+                        vf.update_layout(height=max(300, len(risk_df) * 26), margin=dict(t=10, b=10, l=10, r=10), showlegend=False)
+                        st.plotly_chart(vf, use_container_width=True)
+                    with rc2:
+                        st.markdown("#### Risk vs Return")
+                        plot_df = risk_df.dropna(subset=['Ann. Volatility (%)', 'Ann. Return (%)'])
+                        rrf = px.scatter(plot_df, x='Ann. Volatility (%)', y='Ann. Return (%)',
+                                         color='Sharpe Ratio', hover_name='Security',
+                                         color_continuous_scale='RdYlGn', template='plotly_white', height=400)
+                        rrf.add_hline(y=0, line_dash="dash", line_color="#ccc")
+                        rrf.update_layout(margin=dict(t=10, b=10, l=10, r=10))
+                        st.plotly_chart(rrf, use_container_width=True)
+                    st.markdown("#### Correlation Matrix")
+                    prices_2y = fetch_prices_batch(tickers_str_r, period="2y")
+                    valid_pc = [t for t in eligible_r['Ticker'].tolist() if t in prices_2y.columns]
+                    if len(valid_pc) >= 2:
+                        name_map = dict(zip(eligible_r['Ticker'].tolist(), eligible_r['Security'].tolist()))
+                        corr = prices_2y[valid_pc].pct_change().dropna().corr()
+                        corr.columns = [name_map.get(c, c) for c in corr.columns]
+                        corr.index = [name_map.get(c, c) for c in corr.index]
+                        cf = px.imshow(corr.round(2), color_continuous_scale='RdYlGn', zmin=-1, zmax=1,
+                                       aspect='auto', text_auto='.2f', template='plotly_white')
+                        cf.update_layout(height=550, margin=dict(t=10, b=10, l=10, r=10))
+                        st.plotly_chart(cf, use_container_width=True)
+                        st.caption("Near **+1** = move together (concentrated risk). Near **−1** = natural hedge. Near **0** = uncorrelated.")
+
+        # ══════════════════════════════════════════
+        # TAB 6 — DIVIDEND CALENDAR
+        # ══════════════════════════════════════════
+        with t6:
+            st.markdown('<p class="tab-subtitle">Project your expected income stream across the next 12 months. Amounts match the Annualised Income KPI; Yahoo Finance data is used for payment timing only.</p>', unsafe_allow_html=True)
+            st.info("ℹ️ **How amounts are calculated:** Each holding's income per payment = (Quantity × DPS from MASTER_INTEL) ÷ payments per year. Yahoo Finance is used only to identify *which months* dividends land in. Projected dates are estimates — actual ex-dividend and payment dates may differ slightly.")
+            eligible_d = df[df['Ticker'].notnull()]
+            if eligible_d.empty:
+                st.warning("No holdings with market tickers available.")
+            else:
+                tickers_str_d = ",".join(eligible_d['Ticker'].tolist())
+                names_str_d = "|".join(eligible_d['Security'].tolist())
+                # Use MASTER_INTEL-derived annual income (same source as KPI card)
+                annual_income_map = dict(zip(eligible_d['Security'], eligible_d['Annual Dividend (SGD)']))
+                with st.spinner("Fetching dividend timing data from Yahoo Finance..."):
+                    div_data = get_dividend_data(tickers_str_d, names_str_d)
+                if not div_data:
+                    st.warning("No dividend history found for current holdings.")
+                else:
+                    now_ts = datetime.now()
+                    months = pd.date_range(start=pd.Timestamp(now_ts.year, now_ts.month, 1), periods=12, freq='MS')
+                    month_labels = [m.strftime('%b %Y') for m in months]
+                    cal_data = {m: {} for m in month_labels}
+                    for name, div_series in div_data.items():
+                        annual_inc = annual_income_map.get(name, 0.0)
+                        try:
+                            projs = project_dividends(div_series, annual_inc)
+                            for proj_date, income in projs:
+                                label = proj_date.strftime('%b %Y')
+                                if label in cal_data:
+                                    cal_data[label][name] = cal_data[label].get(name, 0) + income
+                        except Exception:
+                            continue
+
+                    # Build DataFrame: rows = securities with timing data, cols = months
+                    all_securities = list(div_data.keys())
+                    cal_df = pd.DataFrame(index=all_securities, columns=month_labels, data=0.0)
+                    for m in month_labels:
+                        for sec, inc in cal_data[m].items():
+                            if sec in cal_df.index:
+                                cal_df.loc[sec, m] = inc
+
+                    monthly_totals = cal_df.sum(axis=0)
+                    total_proj_12m = float(monthly_totals.sum())
+                    best_month = monthly_totals.idxmax() if total_proj_12m > 0 else "N/A"
+                    best_amt = float(monthly_totals.max()) if total_proj_12m > 0 else 0
+                    lean_months = int((monthly_totals == 0).sum())
+
+                    dc1, dc2, dc3 = st.columns(3)
+                    with dc1: kpi_card("📅", "Projected Income (12M)", f"S${total_proj_12m:,.0f}")
+                    with dc2: kpi_card("🏆", f"Best Month — {best_month}", f"S${best_amt:,.0f}")
+                    with dc3: kpi_card("⚠️", "Months with No Income", str(lean_months))
+
+                    # ── Reconciliation: explain any gap vs total_inc ──
+                    excluded_names = [n for n in eligible_d['Security'].tolist() if n not in div_data]
+                    excluded_inc = sum(annual_income_map.get(n, 0) for n in excluded_names)
+                    all_holdings_no_ticker = df[df['Ticker'].isnull()]['Security'].tolist()
+                    no_ticker_inc = df[df['Ticker'].isnull()]['Annual Dividend (SGD)'].sum()
+
+                    if excluded_inc > 0 or no_ticker_inc > 0:
+                        gap = total_inc - total_proj_12m
+                        parts = []
+                        if excluded_names:
+                            parts.append(f"**{', '.join(excluded_names)}** — no timing data in Yahoo Finance (S${excluded_inc:,.0f}/yr)")
+                        if all_holdings_no_ticker:
+                            parts.append(f"**{', '.join(all_holdings_no_ticker)}** — no market ticker in MASTER_INTEL (S${no_ticker_inc:,.0f}/yr)")
+                        st.markdown(f"""
+                        <div class="conc-alert" style="color:#555; border-left-color:#3498DB; background:rgba(52,152,219,0.06);">
+                        📊 <strong>Reconciliation:</strong> Annualised Income KPI = <strong>S${total_inc:,.0f}</strong> &nbsp;|&nbsp;
+                        Calendar total = <strong>S${total_proj_12m:,.0f}</strong> &nbsp;|&nbsp;
+                        Gap = <strong>S${gap:,.0f}</strong> — attributed to: {'; '.join(parts) if parts else 'rounding differences'}.
+                        </div>""", unsafe_allow_html=True)
+
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    if total_proj_12m > 0:
+                        colors = px.colors.qualitative.Set3
+                        fig_cal = go.Figure()
+                        for i, sec in enumerate(all_securities):
+                            row = cal_df.loc[sec].tolist()
+                            if sum(row) > 0:
+                                fig_cal.add_trace(go.Bar(name=sec, x=month_labels, y=row,
+                                                         marker_color=colors[i % len(colors)],
+                                                         hovertemplate='%{fullData.name}: S$%{y:,.2f}<extra></extra>'))
+                        fig_cal.update_layout(barmode='stack', template='plotly_white', height=420,
+                                              xaxis_title="Month", yaxis_title="Expected Income (SGD)",
+                                              legend=dict(orientation="h", y=-0.3, x=0),
+                                              margin=dict(t=20, b=100, l=20, r=20))
+                        st.plotly_chart(fig_cal, use_container_width=True)
+
+                    st.markdown("#### Monthly Breakdown")
+                    summary_rows = [{"Month": m,
+                                     "Holdings Paying": int((cal_df[m] > 0).sum()),
+                                     "Securities": ", ".join([s for s in all_securities if cal_df.loc[s, m] > 0]) or "—",
+                                     "Expected Income (SGD)": round(float(monthly_totals[m]), 2)}
+                                    for m in month_labels]
+                    sum_df = pd.DataFrame(summary_rows)
+                    st.dataframe(sum_df.style.format({"Expected Income (SGD)": "S${:,.2f}"})
+                                 .background_gradient(subset=["Expected Income (SGD)"], cmap="Greens", vmin=0),
+                                 hide_index=True, use_container_width=True)
+
+        # ══════════════════════════════════════════
+        # TAB 7 — PORTFOLIO OPTIMISATION
+        # ══════════════════════════════════════════
+        with t7:
+            st.markdown('<p class="tab-subtitle">Find the theoretically optimal capital allocation using Modern Portfolio Theory and Monte Carlo simulation.</p>', unsafe_allow_html=True)
+            st.warning("⚠️ **Disclaimer:** Results are based on 3-year historical price data. Past performance does not guarantee future results. This is not financial advice.")
+            eligible_e = df[df['Ticker'].notnull()]
+            if len(eligible_e) < 2:
+                st.warning("Need at least 2 holdings with market tickers to run optimisation.")
+            else:
+                tickers_str_e = ",".join(eligible_e['Ticker'].tolist())
+                names_str_e = "|".join(eligible_e['Security'].tolist())
+                aum_list = eligible_e['AUM (SGD)'].tolist()
+                total_e_aum = sum(aum_list)
+                weights_str_e = ",".join([str(round(a / total_e_aum, 6)) for a in aum_list])
+
+                def color_change(val):
+                    if isinstance(val, (int, float)):
+                        if val > 0.5: return 'color: #1E8449; font-weight: bold;'
+                        if val < -0.5: return 'color: #C0392B; font-weight: bold;'
+                    return ''
+
+                if st.button("🚀 Run Efficient Frontier (3,000 Simulations)"):
+                    with st.spinner("Downloading 3-year price history and running Monte Carlo simulations — this may take 20–40 seconds on first run..."):
+                        ef = compute_efficient_frontier(tickers_str_e, names_str_e, weights_str_e)
+                    if ef is None:
+                        st.error("Insufficient price data to run optimisation. Ensure holdings have at least 3 months of trading history.")
+                    else:
+                        ef1, ef2, ef3 = st.columns(3)
+                        with ef1: kpi_card("📊", "Current Sharpe Ratio", f"{ef['curr']['sharpe']:.3f}")
+                        with ef2: kpi_card("⭐", "Max Sharpe (Optimal)", f"{ef['max_sharpe']['sharpe']:.3f}")
+                        with ef3: kpi_card("📈", "Sharpe Improvement", f"{ef['max_sharpe']['sharpe'] - ef['curr']['sharpe']:+.3f}")
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        fig_ef = go.Figure()
+                        fig_ef.add_trace(go.Scatter(
+                            x=[v * 100 for v in ef['mc_vols']], y=[r * 100 for r in ef['mc_rets']],
+                            mode='markers',
+                            marker=dict(color=ef['mc_sharpes'], colorscale='RdYlGn', size=4, opacity=0.45,
+                                        colorbar=dict(title='Sharpe', thickness=12)),
+                            name='Monte Carlo Portfolios',
+                            hovertemplate='Vol: %{x:.1f}%<br>Return: %{y:.1f}%<extra></extra>'
+                        ))
+                        fig_ef.add_trace(go.Scatter(
+                            x=[ef['min_vol']['vol'] * 100], y=[ef['min_vol']['ret'] * 100], mode='markers',
+                            marker=dict(symbol='diamond', size=18, color='#3498DB', line=dict(color='white', width=2)),
+                            name=f"Min Volatility ({ef['min_vol']['vol']*100:.1f}% vol)"
+                        ))
+                        fig_ef.add_trace(go.Scatter(
+                            x=[ef['max_sharpe']['vol'] * 100], y=[ef['max_sharpe']['ret'] * 100], mode='markers',
+                            marker=dict(symbol='star', size=22, color='#27AE60', line=dict(color='white', width=2)),
+                            name=f"Max Sharpe ({ef['max_sharpe']['sharpe']:.2f})"
+                        ))
+                        fig_ef.add_trace(go.Scatter(
+                            x=[ef['curr']['vol'] * 100], y=[ef['curr']['ret'] * 100], mode='markers',
+                            marker=dict(symbol='x', size=18, color='#E74C3C', line=dict(color='#E74C3C', width=3)),
+                            name=f"Current Portfolio (Sharpe: {ef['curr']['sharpe']:.2f})"
+                        ))
+                        fig_ef.update_layout(template='plotly_white', height=500,
+                                             xaxis_title='Annualised Volatility (%)', yaxis_title='Annualised Return (%)',
+                                             legend=dict(orientation='h', y=1.12), margin=dict(t=30, b=20, l=20, r=20))
+                        st.plotly_chart(fig_ef, use_container_width=True)
+                        st.markdown("---")
+                        w1, w2 = st.columns(2)
+                        with w1:
+                            st.markdown("#### ⭐ Max Sharpe Portfolio")
+                            ms_rows = [{"Security": n, "Current (%)": round(cw * 100, 1),
+                                        "Optimal (%)": round(ow * 100, 1), "Change (pp)": round((ow - cw) * 100, 1)}
+                                       for n, cw, ow in zip(ef['names'], ef['curr']['weights'], ef['max_sharpe']['weights'])]
+                            ms_df = pd.DataFrame(ms_rows).sort_values("Optimal (%)", ascending=False)
+                            st.dataframe(ms_df.style.format({"Current (%)": "{:.1f}%", "Optimal (%)": "{:.1f}%", "Change (pp)": "{:+.1f}"})
+                                         .map(color_change, subset=["Change (pp)"]), hide_index=True, use_container_width=True)
+                            st.caption(f"Expected Return: **{ef['max_sharpe']['ret']*100:.1f}%** | Volatility: **{ef['max_sharpe']['vol']*100:.1f}%**")
+                        with w2:
+                            st.markdown("#### 💎 Min Volatility Portfolio")
+                            mv_rows = [{"Security": n, "Current (%)": round(cw * 100, 1),
+                                        "Min Vol (%)": round(ow * 100, 1), "Change (pp)": round((ow - cw) * 100, 1)}
+                                       for n, cw, ow in zip(ef['names'], ef['curr']['weights'], ef['min_vol']['weights'])]
+                            mv_df = pd.DataFrame(mv_rows).sort_values("Min Vol (%)", ascending=False)
+                            st.dataframe(mv_df.style.format({"Current (%)": "{:.1f}%", "Min Vol (%)": "{:.1f}%", "Change (pp)": "{:+.1f}"})
+                                         .map(color_change, subset=["Change (pp)"]), hide_index=True, use_container_width=True)
+                            st.caption(f"Expected Return: **{ef['min_vol']['ret']*100:.1f}%** | Volatility: **{ef['min_vol']['vol']*100:.1f}%**")
+                else:
+                    st.markdown("""
+                    <div style='text-align:center; padding:40px; background:#f4f8ff; border-radius:14px; border:1px dashed #c0d8f0; margin-top:20px;'>
+                      <div style='font-size:2.5rem; margin-bottom:12px;'>📐</div>
+                      <p style='font-weight:600; color:#0d2240; margin-bottom:6px;'>Efficient Frontier Analysis</p>
+                      <p style='color:#6b7f9e; font-size:0.88rem; max-width:480px; margin:0 auto;'>
+                        Click the button above to run 3,000 Monte Carlo simulations across your holdings.
+                        The analysis identifies the optimal weight allocation to maximise risk-adjusted returns
+                        or minimise volatility — based on 3-year historical price data.
+                      </p>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+# ══════════════════════════════════════════
+# LANDING PAGE
+# ══════════════════════════════════════════
 else:
-    st.info("👋 Welcome. Please upload your CDP PDF or similar portfolio statement to begin.")
+    st.markdown("""
+    <div style='text-align:center; padding: 40px 0 10px 0;'>
+      <div style='font-size:3.5rem;'>🏦</div>
+      <h1 style='color:#0d2240; font-size:2rem; font-weight:700; margin:12px 0 6px 0;'>CLP Wealth Center</h1>
+      <p style='color:#6b7f9e; font-size:1rem; max-width:540px; margin:0 auto;'>
+        Your personal portfolio intelligence platform. Upload a CDP statement PDF to unlock
+        seven analytical modules — from sector analysis and income tracking to risk metrics,
+        dividend forecasting, and Modern Portfolio Theory optimisation.
+      </p>
+    </div>
+    <div class="feat-grid" style='margin-top:36px;'>
+      <div class="feat-card"><div class="feat-icon">📊</div><div class="feat-title">Asset Discovery</div><div class="feat-desc">Treemap, sunburst and scatter charts reveal capital and income distribution across sectors.</div></div>
+      <div class="feat-card"><div class="feat-icon">📈</div><div class="feat-title">Market Benchmark</div><div class="feat-desc">Compare any holding's total return against the STI index over 1–20 years.</div></div>
+      <div class="feat-card"><div class="feat-icon">📂</div><div class="feat-title">Verification Hub</div><div class="feat-desc">Drill into each sector, review DPS and yield, and export data to CSV.</div></div>
+      <div class="feat-card"><div class="feat-icon">📜</div><div class="feat-title">Strategic Advisory</div><div class="feat-desc">Health gauge, creator/destroyer audit, and rebalance simulator.</div></div>
+      <div class="feat-card"><div class="feat-icon">⚠️</div><div class="feat-title">Risk Analytics</div><div class="feat-desc">Volatility, Sharpe ratio, beta, VaR, max drawdown, and correlation heatmap per holding.</div></div>
+      <div class="feat-card"><div class="feat-icon">📅</div><div class="feat-title">Dividend Calendar</div><div class="feat-desc">12-month income projection by holding, stacked by month with a gap analysis.</div></div>
+      <div class="feat-card"><div class="feat-icon">🎯</div><div class="feat-title">Portfolio Optimisation</div><div class="feat-desc">Efficient Frontier via Monte Carlo — Max Sharpe and Min Volatility weight suggestions.</div></div>
+    </div>
+    <div style='text-align:center; margin-top:40px; padding:24px; background:#f4f8ff; border-radius:14px; border:1px dashed #c0d8f0;'>
+      <div style='font-size:1.4rem; margin-bottom:8px;'>⬆️</div>
+      <p style='color:#0d2240; font-weight:600; margin:0 0 4px 0;'>Get started</p>
+      <p style='color:#6b7f9e; font-size:0.88rem; margin:0;'>Use the <strong>Upload Portfolio Statement</strong> button in the sidebar to begin.</p>
+    </div>
+    """, unsafe_allow_html=True)
