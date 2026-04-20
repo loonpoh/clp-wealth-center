@@ -1150,7 +1150,9 @@ if uploaded_file:
                         corr = prices_2y[valid_pc].pct_change().dropna().corr()
                         corr.columns = [name_map.get(c, c) for c in corr.columns]
                         corr.index = [name_map.get(c, c) for c in corr.index]
-                        cf = px.imshow(corr.round(2), color_continuous_scale='RdYlGn', zmin=-1, zmax=1,
+                        corr_r = corr.round(2)
+                        cf = px.imshow(corr_r.to_numpy(), x=list(corr_r.columns), y=list(corr_r.index),
+                                       color_continuous_scale='RdYlGn', zmin=-1, zmax=1,
                                        aspect='auto', text_auto='.2f', template='plotly_white')
                         cf.update_layout(height=550, margin=dict(t=10, b=10, l=10, r=10))
                         st.plotly_chart(cf, use_container_width=True)
