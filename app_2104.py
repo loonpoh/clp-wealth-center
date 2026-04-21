@@ -6,7 +6,6 @@ import plotly.graph_objects as go
 import yfinance as yf
 import re
 import numpy as np
-import requests
 from datetime import datetime, timedelta
 
 # --- 1. SYSTEM CONFIG ---
@@ -35,22 +34,6 @@ section[data-testid="stSidebar"] .stButton > button:hover {
     background: rgba(240, 180, 41, 0.12);
 }
 section[data-testid="stSidebar"] label { color: #8fa8cc !important; font-size: 0.8rem !important; }
-
-/* Sidebar collapse/expand button */
-[data-testid="stSidebarCollapseButton"] {
-    display: flex !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    background: transparent !important;
-    border: none !important;
-}
-[data-testid="stSidebarCollapseButton"] svg {
-    stroke: #8fa8cc !important;
-    fill: none !important;
-}
-[data-testid="stSidebarCollapseButton"]:hover svg {
-    stroke: #f0b429 !important;
-}
 
 .kpi-card {
     background: linear-gradient(135deg, #0d2240 0%, #1a3a6b 100%);
@@ -109,13 +92,6 @@ button[data-baseweb="tab"][aria-selected="true"] {
     color: #0d2240 !important;
     font-weight: 700 !important;
 }
-button[data-baseweb="tab"]:focus-visible {
-    outline: 2px solid #f0b429 !important;
-    outline-offset: -2px !important;
-    background: rgba(240, 180, 41, 0.12) !important;
-    color: #0d2240 !important;
-    border-radius: 8px 8px 0 0 !important;
-}
 div[data-baseweb="tab-highlight"] {
     background-color: #f0b429 !important;
     height: 3px !important;
@@ -129,19 +105,92 @@ div[data-baseweb="tab-border"] {
 """, unsafe_allow_html=True)
 
 # --- 3. ASSET REGISTRY ---
-# Edit intel_data.py to add/update stocks, DPS rates, and aliases.
-from intel_data import _DPS_AS_OF, DPS_NOTES, MASTER_INTEL, ALIAS_MAP
+# _DPS_AS_OF: the fiscal year from which all Rate values were sourced.
+# UPDATE this string whenever you refresh any Rate value.
+_DPS_AS_OF = "FY 2024"
 
-# Case-insensitive lookup indexes for resolve_intel — built once at import time.
-_MASTER_INTEL_UP = {k.upper(): v for k, v in MASTER_INTEL.items()}
-_ALIAS_MAP_UP = {k.upper(): v for k, v in ALIAS_MAP.items()}
+# Per-holding caveats shown as warnings throughout the app.
+# Add an entry here whenever a Rate requires user attention.
+DPS_NOTES = {
+    "DBS": (
+        "Rate updated to S$2.22 (FY 2024 ordinary only). "
+        "DBS also pays a recurring S$0.50/share special capital return — "
+        "add it back to Rate if you wish to include it in income projections."
+    ),
+    "HPH TRUST USD": (
+        "Distributions are paid in USD, not SGD. "
+        "Rate 0.02 is used here as SGD — cross-check against the prevailing USD/SGD rate "
+        "and adjust Rate to the SGD-equivalent for accurate income figures."
+    ),
+    "KEPPEL": (
+        "Keppel Corp completed a major restructuring in 2023. "
+        "Verify Rate against the latest post-restructuring annual report DPS."
+    ),
+    "MAPLETREE LOG TR": (
+        "Mapletree Logistics has been reducing DPU in recent quarters due to rising costs. "
+        "Verify Rate against the latest declared DPU before relying on income projections."
+    ),
+}
 
-def _si(ticker):
-    """Append .SI exchange suffix to bare SGX codes for Yahoo Finance."""
-    t = str(ticker).strip() if ticker else ""
-    if t and '.' not in t and not t.startswith('^'):
-        return t + '.SI'
-    return t
+MASTER_INTEL = {
+    "DBS": {"Rate": 3.24, "PB": 2.34, "Ticker": "D05.SI", "Sector": "Financial Services"},
+    "UOB": {"Rate": 1.70, "PB": 1.18, "Ticker": "U11.SI", "Sector": "Financial Services"},
+    "OCBC": {"Rate": 0.86, "PB": 1.10, "Ticker": "O39.SI", "Sector": "Financial Services"},
+    "SINGTEL": {"Rate": 0.16, "PB": 1.32, "Ticker": "Z74.SI", "Sector": "Telecommunications"},
+    "SUNTEC REIT": {"Rate": 0.08, "PB": 0.62, "Ticker": "T82U.SI", "Sector": "REITs & Business Trusts"},
+    "ST ENGINEERING": {"Rate": 0.16, "PB": 4.50, "Ticker": "S63.SI", "Sector": "Industrials & Diversified"},
+    "KEPPEL": {"Rate": 0.47, "PB": 1.15, "Ticker": "BN4.SI", "Sector": "Industrials & Diversified"},
+    "MAPLETREE LOG TR": {"Rate": 0.08, "PB": 0.95, "Ticker": "M44U.SI", "Sector": "REITs & Business Trusts"},
+    "MAPLETREE IND TR": {"Rate": 0.08, "PB": 0.95, "Ticker": "ME8U.SI", "Sector": "REITs & Business Trusts"},
+    "MAPLETREE PAN ASIA COMM TR": {"Rate": 0.08, "PB": 0.95, "Ticker": "N2IU.SI", "Sector": "REITs & Business Trusts"},
+    "VENTURE": {"Rate": 0.75, "PB": 1.22, "Ticker": "V03.SI", "Sector": "Technology"},
+    "WILMAR INTL": {"Rate": 0.17, "PB": 0.78, "Ticker": "F34.SI", "Sector": "Consumer Goods"},
+    "COMFORTDELGRO": {"Rate": 0.07, "PB": 1.05, "Ticker": "C52.SI", "Sector": "Industrials & Diversified"},
+    "GENTING SINGAPORE LTD": {"Rate": 0.07, "PB": 1.05, "Ticker": "G13.SI", "Sector": "Industrials & Diversified"},
+    "THAI BEV LTD": {"Rate": 0.07, "PB": 1.05, "Ticker": "Y92.SI", "Sector": "Industrials & Diversified"},
+    "DFI RETAIL GROUP LTD": {"Rate": 0.07, "PB": 1.05, "Ticker": "D01.SI", "Sector": "Industrials & Diversified"},
+    "NETLINK NBN TR": {"Rate": 0.05, "PB": 1.35, "Ticker": "CJLU.SI", "Sector": "REITs & Business Trusts"},
+    "KEP INFRA TR": {"Rate": 0.04, "PB": 2.10, "Ticker": "A7RU.SI", "Sector": "REITs & Business Trusts"},
+    "SATS": {"Rate": 0.05, "PB": 1.85, "Ticker": "S58.SI", "Sector": "Industrials & Diversified"},
+    "SEMBCORP IND": {"Rate": 0.15, "PB": 1.42, "Ticker": "U96.SI", "Sector": "Industrials & Diversified"},
+    "SIA ENGINEERING": {"Rate": 0.08, "PB": 1.25, "Ticker": "S59.SI", "Sector": "Industrials & Diversified"},
+    "CITYDEV": {"Rate": 0.12, "PB": 0.38, "Ticker": "C09.SI", "Sector": "Real Estate"},
+    "SINGAPORE EXCHANGE LTD": {"Rate": 0.30, "PB": 0.38, "Ticker": "S68.SI", "Sector": "Financial Services"},
+    "JARDINE MATHESON HOLDINGS LTD": {"Rate": 0.30, "PB": 0.38, "Ticker": "J36.SI", "Sector": "Industrials & Diversified"},   
+    "SINGAPORE AIRLINES LTD": {"Rate": 0.30, "PB": 0.38, "Ticker": "C6L.SI", "Sector": "Industrials & Diversified"},
+    "CAPLAND INTEGRATED COMM TR": {"Rate": 0.07, "PB": 0.88, "Ticker": "C36U.SI", "Sector": "REITs & Business Trusts"},
+    "CAPLAND ASCOTT T": {"Rate": 0.07, "PB": 0.88, "Ticker": "HMN.SI", "Sector": "REITs & Business Trusts"},
+    "HONG KONG LAND LTD": {"Rate": 0.12, "PB": 0.38, "Ticker": "H78.SI", "Sector": "Real Estate"},
+    "CAPLAND INVEST LTD": {"Rate": 0.12, "PB": 0.38, "Ticker": "9CI.SI", "Sector": "REITs & Business Trusts"},
+    "CAPLAND ASCENDAS REIT": {"Rate": 0.12, "PB": 0.38, "Ticker": "A17U.SI", "Sector": "REITs & Business Trusts"},
+    "YANGZIJIANG LTD": {"Rate": 0.05, "PB": 1.85, "Ticker": "BS6.SI", "Sector": "Industrials & Diversified"},
+    "FRASERS CENTERPOINT TR": {"Rate": 0.12, "PB": 0.38, "Ticker": "J69U.SI", "Sector": "REITs & Business Trusts"},
+    "FRASERS COMM AND LOGISTIC TR": {"Rate": 0.12, "PB": 0.38, "Ticker": "BUOU.SI", "Sector": "REITs & Business Trusts"},
+    "KEPPEL DC REIT": {"Rate": 0.12, "PB": 0.38, "Ticker": "AJBU.SI", "Sector": "REITs & Business Trusts"},
+    "ASIAN PAY TV TR": {"Rate": 0.01, "PB": 0.45, "Ticker": "S7OU.SI", "Sector": "Telecommunications"},
+    "CAPITA CHINA TR": {"Rate": 0.07, "PB": 0.62, "Ticker": "AU8U.SI", "Sector": "REITs & Business Trusts"},
+    "CAPLAND INDIA T": {"Rate": 0.08, "PB": 1.12, "Ticker": "CY6U.SI", "Sector": "REITs & Business Trusts"},
+    "CDL HTRUST": {"Rate": 0.06, "PB": 0.75, "Ticker": "J85.SI", "Sector": "REITs & Business Trusts"},
+    "FIRST REIT": {"Rate": 0.02, "PB": 0.55, "Ticker": "AW9U.SI", "Sector": "REITs & Business Trusts"},
+    "KEPPEL REIT": {"Rate": 0.06, "PB": 0.68, "Ticker": "K71U.SI", "Sector": "REITs & Business Trusts"},
+    "KIMLY": {"Rate": 0.02, "PB": 1.45, "Ticker": "1D0.SI", "Sector": "Consumer Goods"},
+    "LIPPO MALLS TR": {"Rate": 0.00, "PB": 0.12, "Ticker": "D5IU.SI", "Sector": "REITs & Business Trusts"},
+    "OLAM GROUP": {"Rate": 0.07, "PB": 0.58, "Ticker": "VC2.SI", "Sector": "Consumer Goods"},
+    "QUEREIT": {"Rate": 0.03, "PB": 0.42, "Ticker": "BJW.SI", "Sector": "REITs & Business Trusts"},
+    "SEATRIUM LTD": {"Rate": 0.02, "PB": 1.10, "Ticker": "S51.SI", "Sector": "Industrials & Diversified"},
+    "SINGPOST": {"Rate": 0.01, "PB": 0.65, "Ticker": "S08.SI", "Sector": "Industrials & Diversified"},
+    "PANUNITED": {"Rate": 0.01, "PB": 0.65, "Ticker": "P52.SI", "Sector": "Industrials & Diversified"},
+    "TUAN SING": {"Rate": 0.01, "PB": 0.65, "Ticker": "T24.SI", "Sector": "Industrials & Diversified"},
+    "CHINA AVIATION": {"Rate": 0.01, "PB": 0.65, "Ticker": "VZ8.SI", "Sector": "Industrials & Diversified"},
+    "COSCO SHP SG": {"Rate": 0.01, "PB": 0.65, "Ticker": "VZS.SI", "Sector": "Industrials & Diversified"},
+    "STARHILLGBL REIT": {"Rate": 0.04, "PB": 0.72, "Ticker": "P40U.SI", "Sector": "REITs & Business Trusts"},
+    "STARHUB": {"Rate": 0.05, "PB": 2.80, "Ticker": "CC3.SI", "Sector": "Telecommunications"},
+    "UOL": {"Rate": 0.20, "PB": 0.45, "Ticker": "U14.SI", "Sector": "Real Estate"},
+    "BUKIT SEMBAWANG": {"Rate": 0.01, "PB": 2.45, "Ticker": "B61.SI", "Sector": "Real Estate"},
+    "HPH TRUST USD": {"Rate": 0.02, "PB": 0.35, "Ticker": "NS8U.SI", "Sector": "REITs & Business Trusts"},
+    "ASTREAVIB310318": {"Rate": 0.03, "PB": 1.00, "Ticker": None, "Sector": "Fixed Income"},
+    "SBDEC17 GX17120W": {"Rate": 0.03, "PB": 1.00, "Ticker": None, "Sector": "Fixed Income"}
+}
 
 # --- 4. HELPER FUNCTIONS ---
 def clean_val(v):
@@ -160,13 +209,21 @@ def resolve_intel(raw_name):
     is_known=False means the stock was not found in MASTER_INTEL or ALIAS_MAP.
     """
     name_up = str(raw_name).upper()
-    if name_up in _MASTER_INTEL_UP:
-        return _MASTER_INTEL_UP[name_up], name_up, True
-    for clean_name, aliases in _ALIAS_MAP_UP.items():
+    if name_up in MASTER_INTEL:
+        return MASTER_INTEL[name_up], name_up, True
+    ALIAS_MAP = {
+        "OCBC": ["OVERSEA-CHINESE", "OVERSEA CHINESE", "OCBC"],
+        "UOB": ["UNITED OVERSEAS", "UOB"],
+        "DBS": ["DBS GROUP", "DBS"],
+        "SINGTEL": ["SINGAPORE TELECOM", "SINGTEL"],
+        "MAPLETREE LOG TR": ["MAPLETREE LOGISTICS", "MAPLETREE LOG"],
+        "ST ENGINEERING": ["SINGAPORE TECHNOLOGIES", "ST ENGG"],
+        "CITYDEV": ["CITY DEVELOPMENTS"],
+        "COMFORTDELGRO": ["COMFORT DELGRO"]
+    }
+    for clean_name, aliases in ALIAS_MAP.items():
         if any(alias in name_up for alias in aliases):
-            intel = _MASTER_INTEL_UP.get(clean_name)
-            if intel:
-                return intel, clean_name, True
+            return MASTER_INTEL[clean_name], clean_name, True
     return {"Rate": 0.0, "PB": 1.0, "Ticker": None, "Sector": guess_sector(name_up)}, name_up, False
 
 def extract_pdf(file):
@@ -310,105 +367,35 @@ def project_portfolio_growth(current_aum, annual_savings, total_return, dividend
             aum = max(0.0, aum * (1 + growth_rate) + annual_savings)
     return rows
 
-# --- FinBERT SENTIMENT HELPERS ---
-
-_FINBERT_URL = "https://api-inference.huggingface.co/models/ProsusAI/finbert"
-_SENTIMENT_COLOUR = {"positive": "#27AE60", "neutral": "#7F8C8D", "negative": "#E74C3C"}
-_SENTIMENT_LABEL  = {"positive": "Bullish", "neutral": "Neutral", "negative": "Bearish"}
-_SENTIMENT_ICON   = {"positive": "📈", "neutral": "➡️", "negative": "📉"}
-
-def _call_finbert(texts: list[str], hf_token: str) -> list[dict] | None:
-    """POST a batch of texts to FinBERT; return list of {label, score} dicts or None on error."""
-    if not hf_token or not texts:
-        return None
-    try:
-        resp = requests.post(
-            _FINBERT_URL,
-            headers={"Authorization": f"Bearer {hf_token}"},
-            json={"inputs": texts},
-            timeout=30,
-        )
-        if resp.status_code == 503:
-            # Model is loading — surface a friendly message upstream
-            return "loading"
-        if resp.status_code != 200:
-            return None
-        raw = resp.json()
-        # raw is list[list[{label,score}]] — pick the top label per text
-        results = []
-        for item in raw:
-            if isinstance(item, list):
-                top = max(item, key=lambda x: x["score"])
-                results.append({"label": top["label"].lower(), "score": top["score"]})
-            else:
-                results.append({"label": "neutral", "score": 1.0})
-        return results
-    except Exception:
-        return None
-
-def _fetch_news_headlines(ticker_si: str, max_headlines: int = 5) -> list[str]:
-    """Return up to max_headlines news titles for a .SI ticker via yfinance."""
-    try:
-        news = yf.Ticker(ticker_si).news or []
-        return [item.get("title", "") for item in news[:max_headlines] if item.get("title")]
-    except Exception:
-        return []
-
-def _aggregate_sentiment(scores: list[dict]) -> dict:
-    """Collapse a list of per-headline {label,score} into a single summary dict."""
-    if not scores:
-        return {"label": "neutral", "net": 0.0, "pos": 0, "neu": 0, "neg": 0, "count": 0}
-    pos = sum(s["score"] for s in scores if s["label"] == "positive")
-    neg = sum(s["score"] for s in scores if s["label"] == "negative")
-    neu = sum(s["score"] for s in scores if s["label"] == "neutral")
-    n   = len(scores)
-    net = (pos - neg) / n
-    if net > 0.15:
-        label = "positive"
-    elif net < -0.15:
-        label = "negative"
-    else:
-        label = "neutral"
-    return {
-        "label": label,
-        "net":   round(net, 3),
-        "pos":   sum(1 for s in scores if s["label"] == "positive"),
-        "neu":   sum(1 for s in scores if s["label"] == "neutral"),
-        "neg":   sum(1 for s in scores if s["label"] == "negative"),
-        "count": n,
-    }
-
 @st.cache_data(ttl=3600)
 def fetch_prices_batch(tickers_str, period="2y"):
     """Batch-download closing prices; returns DataFrame with tickers as columns."""
-    raw_tickers = [t.strip() for t in tickers_str.split(",") if t.strip()]
-    si_tickers = [_si(t) for t in raw_tickers]
-    si_to_raw = {s: r for s, r in zip(si_tickers, raw_tickers)}
+    tickers = [t.strip() for t in tickers_str.split(",") if t.strip()]
     result = {}
-    if not si_tickers:
+    if not tickers:
         return pd.DataFrame()
     try:
-        raw = yf.download(si_tickers, period=period, auto_adjust=True, progress=False)
+        raw = yf.download(tickers, period=period, auto_adjust=True, progress=False)
         if isinstance(raw.columns, pd.MultiIndex):
             close_df = raw['Close']
-            for si, bare in si_to_raw.items():
-                if si in close_df.columns:
-                    s = close_df[si].dropna()
+            for ticker in tickers:
+                if ticker in close_df.columns:
+                    s = close_df[ticker].dropna()
                     if not s.empty:
-                        result[bare] = s
+                        result[ticker] = s
         else:
             c = raw['Close'] if 'Close' in raw.columns else raw.iloc[:, 0]
             if isinstance(c, pd.DataFrame): c = c.iloc[:, 0]
             if not c.dropna().empty:
-                result[raw_tickers[0]] = c
+                result[tickers[0]] = c
     except Exception:
         pass
-    for si, bare in [(s, r) for s, r in si_to_raw.items() if r not in result]:
+    for ticker in [t for t in tickers if t not in result]:
         try:
-            h = yf.download(si, period=period, auto_adjust=True, progress=False)
+            h = yf.download(ticker, period=period, auto_adjust=True, progress=False)
             c = h['Close'].iloc[:, 0] if isinstance(h['Close'], pd.DataFrame) else h['Close']
             if not c.dropna().empty:
-                result[bare] = c
+                result[ticker] = c
         except Exception:
             continue
     return pd.DataFrame(result) if result else pd.DataFrame()
@@ -461,7 +448,7 @@ def get_dividend_data(tickers_str, names_str):
     result = {}
     for ticker, name in zip(tickers, names):
         try:
-            divs = yf.Ticker(_si(ticker)).dividends
+            divs = yf.Ticker(ticker).dividends
             if not divs.empty:
                 result[name] = divs
         except Exception:
@@ -515,7 +502,7 @@ def scan_portfolio_returns(_data_hash, tickers_and_names):
     m = {}
     for ticker, name in tickers_and_names:
         try:
-            h = yf.download(_si(ticker), period="5y", auto_adjust=True, progress=False)
+            h = yf.download(ticker, period="5y", auto_adjust=True, progress=False)
             if not h.empty:
                 c = h['Close'].iloc[:, 0] if isinstance(h['Close'], pd.DataFrame) else h['Close']
                 m[name] = float(c.iloc[-1]) / float(c.iloc[0]) - 1.0
@@ -526,7 +513,7 @@ def scan_portfolio_returns(_data_hash, tickers_and_names):
 @st.cache_data(ttl=3600)
 def load_benchmark(ticker, years):
     start = datetime.now() - timedelta(days=years * 365)
-    h_a = yf.download(_si(ticker), start=start, end=datetime.now(), auto_adjust=True, progress=False)
+    h_a = yf.download(ticker, start=start, end=datetime.now(), auto_adjust=True, progress=False)
     h_s = yf.download("^STI", start=start, end=datetime.now(), auto_adjust=True, progress=False)
     return h_a, h_s
 
@@ -541,15 +528,10 @@ CRISIS_SCENARIOS = {
         "desc": "Global Financial Crisis — peak to trough (~17 months)",
         "sti_drop": -0.617,
     },
-    "Dotcom Crash 2000–02": {
-        "start": "2000-03-10", "end": "2002-10-09",
-        "desc": "Dot-com bubble burst — tech collapse and prolonged bear market",
-        "sti_drop": -0.542,
-    },
-    "European PIGS Crisis 2010–12": {
-        "start": "2010-04-23", "end": "2012-07-26",
-        "desc": "Eurozone sovereign debt crisis — Greece, Portugal, Ireland, Spain, Italy",
-        "sti_drop": -0.197,
+    "2022 Rate Hike Cycle": {
+        "start": "2022-01-03", "end": "2022-10-31",
+        "desc": "Aggressive Fed rate hike cycle — REIT and bond selloff",
+        "sti_drop": -0.118,
     },
     "Asia Financial Crisis 1997–98": {
         "start": "1997-07-01", "end": "1998-08-31",
@@ -561,37 +543,35 @@ CRISIS_SCENARIOS = {
 @st.cache_data(ttl=86400)
 def fetch_crisis_returns(tickers_str, start_date, end_date):
     """Returns {ticker: pct_return} over the given crisis window."""
-    raw_tickers = [t.strip() for t in tickers_str.split(",") if t.strip()]
-    si_tickers = [_si(t) for t in raw_tickers]
-    si_to_raw = {s: r for s, r in zip(si_tickers, raw_tickers)}
+    tickers = [t.strip() for t in tickers_str.split(",") if t.strip()]
     result = {}
-    if not si_tickers:
+    if not tickers:
         return result
     try:
-        raw = yf.download(si_tickers, start=start_date, end=end_date, auto_adjust=True, progress=False)
+        raw = yf.download(tickers, start=start_date, end=end_date, auto_adjust=True, progress=False)
         if isinstance(raw.columns, pd.MultiIndex):
             close_df = raw['Close']
-            for si, bare in si_to_raw.items():
-                if si in close_df.columns:
-                    s = close_df[si].dropna()
+            for ticker in tickers:
+                if ticker in close_df.columns:
+                    s = close_df[ticker].dropna()
                     if len(s) >= 2:
-                        result[bare] = float(s.iloc[-1]) / float(s.iloc[0]) - 1.0
+                        result[ticker] = float(s.iloc[-1]) / float(s.iloc[0]) - 1.0
         else:
             c = raw['Close'] if 'Close' in raw.columns else raw.iloc[:, 0]
             if isinstance(c, pd.DataFrame):
                 c = c.iloc[:, 0]
             s = c.dropna()
             if len(s) >= 2:
-                result[raw_tickers[0]] = float(s.iloc[-1]) / float(s.iloc[0]) - 1.0
+                result[tickers[0]] = float(s.iloc[-1]) / float(s.iloc[0]) - 1.0
     except Exception:
         pass
-    for si, bare in [(s, r) for s, r in si_to_raw.items() if r not in result]:
+    for ticker in [t for t in tickers if t not in result]:
         try:
-            h = yf.download(si, start=start_date, end=end_date, auto_adjust=True, progress=False)
+            h = yf.download(ticker, start=start_date, end=end_date, auto_adjust=True, progress=False)
             c = h['Close'].iloc[:, 0] if isinstance(h['Close'], pd.DataFrame) else h['Close']
             s = c.dropna()
             if len(s) >= 2:
-                result[bare] = float(s.iloc[-1]) / float(s.iloc[0]) - 1.0
+                result[ticker] = float(s.iloc[-1]) / float(s.iloc[0]) - 1.0
         except Exception:
             continue
     return result
@@ -602,7 +582,7 @@ def fetch_annual_dps(ticker):
     if not ticker or not ticker.strip():
         return 0.0
     try:
-        divs = yf.Ticker(_si(ticker.strip())).dividends
+        divs = yf.Ticker(ticker.strip()).dividends
         if divs.empty:
             return 0.0
         if hasattr(divs.index, 'tz') and divs.index.tz is not None:
@@ -626,23 +606,19 @@ st.sidebar.markdown("""
 st.sidebar.markdown("**Upload Portfolio Statement**")
 uploaded_file = st.sidebar.file_uploader("PDF only", type="pdf", label_visibility="collapsed")
 st.sidebar.markdown("---")
-with st.sidebar.expander("🤖 AI Sentiment (FinBERT)", expanded=False):
-    st.markdown(
-        "<small>Enter your free <a href='https://huggingface.co/settings/tokens' target='_blank'>"
-        "HuggingFace token</a> to enable the Sentiment Radar in the Advisory tab.</small>",
-        unsafe_allow_html=True,
-    )
-    hf_token_input = st.text_input(
-        "HuggingFace API Token",
-        type="password",
-        placeholder="hf_••••••••••••••••••••",
-        label_visibility="collapsed",
-    )
-    if hf_token_input:
-        st.session_state["hf_token"] = hf_token_input
-        st.success("Token saved for this session.")
-    elif "hf_token" not in st.session_state:
-        st.session_state["hf_token"] = ""
+with st.sidebar.expander("⚙️ App Maintenance Guide"):
+    st.markdown("""
+**The Golden Rule of New Stocks**
+
+If you purchase a brand new asset, the app calculates AUM automatically but hides it from Market Benchmark and Audit tabs.
+
+**To unlock full auditing:**
+1. Open `app.py` in your GitHub repository.
+2. Locate the `MASTER_INTEL` dict near the top.
+3. Add your stock:
+`"PANUNITED": {"Rate": 0.0, "PB": 1.0, "Ticker": "P52.SI", "Sector": "Industrials"}`
+4. Click **Commit changes** — the live app refreshes instantly.
+""")
 
 # --- 6. TABS ---
 t1, t2, t3, t4, t5, t6, t7, t8, t9 = st.tabs([
@@ -650,51 +626,6 @@ t1, t2, t3, t4, t5, t6, t7, t8, t9 = st.tabs([
     "📜 Advisory", "⚠️ Risk", "📅 Dividends",
     "🎯 Optimise", "🔥 Stress Test", "🏆 Goals"
 ])
-
-# Make every tab button a TAB-key stop.
-# BaseWeb's roving-tabindex pattern sets tabindex="-1" on non-selected tabs,
-# so only the active tab is reachable by keyboard. This patch overrides that.
-# The observer watches ONLY the tab-list element (not the whole body) to avoid
-# a mutation cascade during heavy Streamlit re-renders such as PDF loading.
-st.iframe("""
-<script>
-(function () {
-    var doc = window.parent.document;
-    var pending = false;
-
-    function patch() {
-        if (pending) return;
-        pending = true;
-        requestAnimationFrame(function () {
-            doc.querySelectorAll('button[data-baseweb="tab"]').forEach(function (btn) {
-                // Only write when value actually needs to change — prevents re-triggering
-                if (btn.getAttribute('tabindex') !== '0') {
-                    btn.setAttribute('tabindex', '0');
-                }
-            });
-            pending = false;
-        });
-    }
-
-    function attach() {
-        var tabList = doc.querySelector('[data-baseweb="tab-list"]');
-        if (tabList) {
-            patch();
-            // Watch only the tab-list for tabindex changes — never the full body
-            new MutationObserver(patch).observe(tabList, {
-                subtree: true,
-                attributes: true,
-                attributeFilter: ['tabindex']
-            });
-        } else {
-            setTimeout(attach, 200);
-        }
-    }
-
-    attach();
-})();
-</script>
-""", height=1)
 
 # --- 7. MAIN CONTENT ---
 if uploaded_file:
@@ -752,16 +683,6 @@ if uploaded_file:
                 if ticker_val:
                     df.loc[mask, 'Ticker'] = ticker_val
 
-        # Fallback: auto-fetch DPS from yfinance for MASTER_INTEL stocks where Rate = 0
-        yf_fetched_dps = []
-        if 'Known' in df.columns:
-            zero_known = df[(df['Known'] == True) & (df['DPS'] == 0) & (df['Ticker'].notnull())]
-            for idx in zero_known.index:
-                fetched = fetch_annual_dps(df.at[idx, 'Ticker'])
-                if fetched > 0:
-                    df.at[idx, 'DPS'] = fetched
-                    yf_fetched_dps.append(df.at[idx, 'Security'])
-
         total_aum = df['AUM (SGD)'].sum()
         df["Annual Dividend (SGD)"] = (df["Quantity"] * df["DPS"]).round(2)
         total_inc = df['Annual Dividend (SGD)'].sum()
@@ -788,12 +709,6 @@ if uploaded_file:
             f"<li style='margin-bottom:4px;'><strong>{k}</strong> — {v}</li>"
             for k, v in active_notes.items()
         )
-        # Note stocks whose DPS was auto-fetched from yfinance
-        if yf_fetched_dps:
-            note_items += (
-                f"<li style='margin-bottom:4px;color:#1A6BBF;'><strong>Live DPS (yfinance):</strong> "
-                f"{', '.join(yf_fetched_dps)} — Rate was 0 in MASTER_INTEL; trailing 12-month dividend used instead. Update Rate to lock in a specific value.</li>"
-            )
         # Warn about unknown stocks still carrying DPS=0
         if 'Known' in df.columns:
             zero_dps_unknown = df[(df['Known'] == False) & (df['DPS'] == 0)]['Security'].tolist()
@@ -1105,7 +1020,7 @@ if uploaded_file:
                             rd = {"Security": n}
                             for y in wy:
                                 tick = df[df['Security'] == n]['Ticker'].iloc[0]
-                                h = yf.download(_si(tick), start=(datetime.now() - timedelta(days=y * 365)), end=datetime.now(), auto_adjust=True, progress=False)
+                                h = yf.download(tick, start=(datetime.now() - timedelta(days=y * 365)), end=datetime.now(), auto_adjust=True, progress=False)
                                 if not h.empty:
                                     c = h['Close'].iloc[:, 0] if isinstance(h['Close'], pd.DataFrame) else h['Close']
                                     rd[f"{y}Y Total Return"] = (float(c.iloc[-1]) / float(c.iloc[0]) - 1.0) * 100
@@ -1125,7 +1040,7 @@ if uploaded_file:
                             rd = {"Security": n}
                             for y in ly:
                                 tick = df[df['Security'] == n]['Ticker'].iloc[0]
-                                h = yf.download(_si(tick), start=(datetime.now() - timedelta(days=y * 365)), end=datetime.now(), auto_adjust=True, progress=False)
+                                h = yf.download(tick, start=(datetime.now() - timedelta(days=y * 365)), end=datetime.now(), auto_adjust=True, progress=False)
                                 if not h.empty:
                                     c = h['Close'].iloc[:, 0] if isinstance(h['Close'], pd.DataFrame) else h['Close']
                                     rd[f"{y}Y Total Return"] = (float(c.iloc[-1]) / float(c.iloc[0]) - 1.0) * 100
@@ -1164,7 +1079,7 @@ if uploaded_file:
                             dps = df[df['Security'] == b]['DPS'].iloc[0]
                             try:
                                 if pd.notnull(tick):
-                                    h = yf.download(_si(tick), period="5d", progress=False)
+                                    h = yf.download(tick, period="5d", progress=False)
                                     c = h['Close'].iloc[:, 0] if isinstance(h['Close'], pd.DataFrame) else h['Close']
                                     new_income_added += capital_per_buy * (dps / float(c.iloc[-1]))
                                 else:
@@ -1193,177 +1108,6 @@ if uploaded_file:
                                          legend=dict(orientation="h", y=1.1), margin=dict(t=30, b=20, l=20, r=20),
                                          yaxis=dict(showticklabels=False, showgrid=False))
                     st.plotly_chart(fig_ba, use_container_width=True)
-
-            # ── SENTIMENT RADAR ──────────────────────
-            st.markdown("---")
-            st.markdown("### 🧠 Sentiment Radar — FinBERT News Analysis")
-            st.markdown(
-                '<p class="tab-subtitle" style="margin-top:-10px;">AI-scored sentiment from the latest news headlines for each holding, '
-                'powered by <strong>ProsusAI/FinBERT</strong> via HuggingFace.</p>',
-                unsafe_allow_html=True,
-            )
-            hf_token = st.session_state.get("hf_token", "")
-            if not hf_token:
-                st.info("Enter your HuggingFace API token in the **AI Sentiment (FinBERT)** panel in the sidebar to activate this section.")
-            else:
-                sent_eligible = df[df['Ticker'].notnull()].copy()
-                if sent_eligible.empty:
-                    st.warning("No holdings with market tickers available for sentiment analysis.")
-                else:
-                    col_run, col_clear = st.columns([1, 5])
-                    with col_run:
-                        run_sentiment = st.button("Analyse Sentiment", type="primary")
-                    with col_clear:
-                        if st.button("Clear Results"):
-                            st.session_state.pop("sentiment_results", None)
-                            st.rerun()
-
-                    if run_sentiment:
-                        all_results = {}
-                        loading_flag = False
-                        progress_bar = st.progress(0, text="Fetching news and scoring sentiment...")
-                        holdings = sent_eligible[['Security', 'Ticker', 'AUM (SGD)']].values.tolist()
-                        for idx, (name, ticker, aum) in enumerate(holdings):
-                            headlines = _fetch_news_headlines(_si(ticker))
-                            if not headlines:
-                                all_results[name] = {
-                                    "ticker": ticker, "aum": aum,
-                                    "headlines": [], "scores": [],
-                                    "summary": {"label": "neutral", "net": 0.0,
-                                                "pos": 0, "neu": 0, "neg": 0, "count": 0},
-                                }
-                                progress_bar.progress((idx + 1) / len(holdings),
-                                                      text=f"No news found for {name} — skipping")
-                                continue
-                            scored = _call_finbert(headlines, hf_token)
-                            if scored == "loading":
-                                loading_flag = True
-                                break
-                            if scored is None:
-                                scored = [{"label": "neutral", "score": 1.0}] * len(headlines)
-                            all_results[name] = {
-                                "ticker": ticker, "aum": aum,
-                                "headlines": headlines, "scores": scored,
-                                "summary": _aggregate_sentiment(scored),
-                            }
-                            progress_bar.progress((idx + 1) / len(holdings),
-                                                  text=f"Scored {name} — {len(headlines)} headline(s)")
-                        progress_bar.empty()
-                        if loading_flag:
-                            st.warning("FinBERT model is loading on HuggingFace — wait ~20 seconds and click Analyse Sentiment again.")
-                        else:
-                            st.session_state["sentiment_results"] = all_results
-
-                    if "sentiment_results" in st.session_state:
-                        results = st.session_state["sentiment_results"]
-
-                        # ── KPI summary bar ──────────────────────────────
-                        n_bull = sum(1 for r in results.values() if r["summary"]["label"] == "positive")
-                        n_bear = sum(1 for r in results.values() if r["summary"]["label"] == "negative")
-                        n_neut = sum(1 for r in results.values() if r["summary"]["label"] == "neutral")
-                        total_scored = len(results)
-                        aum_bull = sum(r["aum"] for r in results.values() if r["summary"]["label"] == "positive")
-                        aum_bear = sum(r["aum"] for r in results.values() if r["summary"]["label"] == "negative")
-                        total_aum_sent = sum(r["aum"] for r in results.values())
-                        wtd_net = (
-                            sum(r["summary"]["net"] * r["aum"] for r in results.values()) / total_aum_sent
-                            if total_aum_sent > 0 else 0.0
-                        )
-                        port_label = "positive" if wtd_net > 0.1 else ("negative" if wtd_net < -0.1 else "neutral")
-                        sk1, sk2, sk3, sk4 = st.columns(4)
-                        with sk1:
-                            kpi_card(_SENTIMENT_ICON[port_label],
-                                     "Portfolio Sentiment",
-                                     _SENTIMENT_LABEL[port_label])
-                        with sk2:
-                            kpi_card("📈", "Bullish Holdings",
-                                     f"{n_bull} ({aum_bull / total_aum_sent * 100:.0f}% AUM)" if total_aum_sent else str(n_bull))
-                        with sk3:
-                            kpi_card("📉", "Bearish Holdings",
-                                     f"{n_bear} ({aum_bear / total_aum_sent * 100:.0f}% AUM)" if total_aum_sent else str(n_bear))
-                        with sk4:
-                            kpi_card("➡️", "Neutral Holdings", str(n_neut))
-
-                        st.markdown("<br>", unsafe_allow_html=True)
-
-                        # ── Per-holding results table ─────────────────────
-                        rows_html = ""
-                        for name, r in sorted(results.items(),
-                                              key=lambda x: x[1]["summary"]["net"],
-                                              reverse=True):
-                            s   = r["summary"]
-                            col = _SENTIMENT_COLOUR[s["label"]]
-                            lbl = _SENTIMENT_LABEL[s["label"]]
-                            ico = _SENTIMENT_ICON[s["label"]]
-                            bar_pos = int(s["pos"] / s["count"] * 100) if s["count"] else 0
-                            bar_neg = int(s["neg"] / s["count"] * 100) if s["count"] else 0
-                            bar_neu = 100 - bar_pos - bar_neg
-                            no_news = s["count"] == 0
-                            rows_html += f"""
-                            <tr>
-                              <td style='padding:8px 12px;font-weight:600;'>{name}</td>
-                              <td style='padding:8px 12px;color:#8fa8cc;font-size:0.82rem;'>{r['ticker']}</td>
-                              <td style='padding:8px 12px;'>
-                                <span style='background:{col};color:#fff;padding:3px 10px;
-                                             border-radius:12px;font-size:0.8rem;font-weight:600;'>
-                                  {ico} {lbl}
-                                </span>
-                              </td>
-                              <td style='padding:8px 12px;min-width:140px;'>
-                                {'<span style="color:#8fa8cc;font-size:0.8rem;">No news found</span>' if no_news else
-                                 f'<div style="display:flex;height:10px;border-radius:5px;overflow:hidden;width:140px;">'
-                                 f'<div style="width:{bar_pos}%;background:#27AE60;"></div>'
-                                 f'<div style="width:{bar_neu}%;background:#7F8C8D;"></div>'
-                                 f'<div style="width:{bar_neg}%;background:#E74C3C;"></div>'
-                                 f'</div>'
-                                 f'<div style="font-size:0.72rem;color:#8fa8cc;margin-top:3px;">'
-                                 f'{s["pos"]}↑ {s["neu"]}→ {s["neg"]}↓ of {s["count"]} headlines</div>'}
-                              </td>
-                              <td style='padding:8px 12px;font-size:0.8rem;color:#8fa8cc;'>
-                                {f"{s['net']:+.2f}" if not no_news else "—"}
-                              </td>
-                            </tr>"""
-                        st.markdown(f"""
-                        <table style='width:100%;border-collapse:collapse;font-size:0.88rem;'>
-                          <thead>
-                            <tr style='border-bottom:2px solid #1e3a5f;color:#8fa8cc;font-size:0.78rem;text-transform:uppercase;'>
-                              <th style='padding:6px 12px;text-align:left;'>Holding</th>
-                              <th style='padding:6px 12px;text-align:left;'>Ticker</th>
-                              <th style='padding:6px 12px;text-align:left;'>Signal</th>
-                              <th style='padding:6px 12px;text-align:left;'>Headline Breakdown</th>
-                              <th style='padding:6px 12px;text-align:left;'>Net Score</th>
-                            </tr>
-                          </thead>
-                          <tbody>{rows_html}</tbody>
-                        </table>
-                        """, unsafe_allow_html=True)
-
-                        # ── Headline drill-down ───────────────────────────
-                        st.markdown("<br>", unsafe_allow_html=True)
-                        with st.expander("Headline Details — click to inspect per-holding news"):
-                            drill = st.selectbox(
-                                "Select holding",
-                                options=[n for n, r in results.items() if r["headlines"]],
-                                key="sent_drill",
-                            )
-                            if drill and drill in results:
-                                dr = results[drill]
-                                for headline, score in zip(dr["headlines"], dr["scores"]):
-                                    c   = _SENTIMENT_COLOUR[score["label"]]
-                                    lbl = _SENTIMENT_LABEL[score["label"]]
-                                    st.markdown(
-                                        f"<div style='padding:7px 12px;margin:4px 0;border-left:4px solid {c};"
-                                        f"background:rgba(255,255,255,0.03);border-radius:0 6px 6px 0;'>"
-                                        f"<span style='color:{c};font-weight:600;font-size:0.8rem;'>{lbl} {score['score']:.0%}</span>"
-                                        f"<div style='margin-top:3px;font-size:0.88rem;'>{headline}</div>"
-                                        f"</div>",
-                                        unsafe_allow_html=True,
-                                    )
-                        st.caption(
-                            "Sentiment scored by **ProsusAI/FinBERT** via HuggingFace Inference API. "
-                            "Net score = (bullish − bearish) / headline count. "
-                            "Results cached for 1 hour — click **Analyse Sentiment** to refresh."
-                        )
 
         # ══════════════════════════════════════════
         # TAB 5 — RISK ANALYTICS

@@ -6,7 +6,6 @@ import plotly.graph_objects as go
 import yfinance as yf
 import re
 import numpy as np
-import requests
 from datetime import datetime, timedelta
 
 # --- 1. SYSTEM CONFIG ---
@@ -35,22 +34,6 @@ section[data-testid="stSidebar"] .stButton > button:hover {
     background: rgba(240, 180, 41, 0.12);
 }
 section[data-testid="stSidebar"] label { color: #8fa8cc !important; font-size: 0.8rem !important; }
-
-/* Sidebar collapse/expand button */
-[data-testid="stSidebarCollapseButton"] {
-    display: flex !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    background: transparent !important;
-    border: none !important;
-}
-[data-testid="stSidebarCollapseButton"] svg {
-    stroke: #8fa8cc !important;
-    fill: none !important;
-}
-[data-testid="stSidebarCollapseButton"]:hover svg {
-    stroke: #f0b429 !important;
-}
 
 .kpi-card {
     background: linear-gradient(135deg, #0d2240 0%, #1a3a6b 100%);
@@ -109,13 +92,6 @@ button[data-baseweb="tab"][aria-selected="true"] {
     color: #0d2240 !important;
     font-weight: 700 !important;
 }
-button[data-baseweb="tab"]:focus-visible {
-    outline: 2px solid #f0b429 !important;
-    outline-offset: -2px !important;
-    background: rgba(240, 180, 41, 0.12) !important;
-    color: #0d2240 !important;
-    border-radius: 8px 8px 0 0 !important;
-}
 div[data-baseweb="tab-highlight"] {
     background-color: #f0b429 !important;
     height: 3px !important;
@@ -129,19 +105,650 @@ div[data-baseweb="tab-border"] {
 """, unsafe_allow_html=True)
 
 # --- 3. ASSET REGISTRY ---
-# Edit intel_data.py to add/update stocks, DPS rates, and aliases.
-from intel_data import _DPS_AS_OF, DPS_NOTES, MASTER_INTEL, ALIAS_MAP
+# _DPS_AS_OF: the fiscal year from which all Rate values were sourced.
+# UPDATE this string whenever you refresh any Rate value.
+_DPS_AS_OF = "FY 2024"
 
-# Case-insensitive lookup indexes for resolve_intel — built once at import time.
-_MASTER_INTEL_UP = {k.upper(): v for k, v in MASTER_INTEL.items()}
-_ALIAS_MAP_UP = {k.upper(): v for k, v in ALIAS_MAP.items()}
+# Per-holding caveats shown as warnings throughout the app.
+# Add an entry here whenever a Rate requires user attention.
+DPS_NOTES = {
+    "DBS": (
+        "Rate updated to S$2.22 (FY 2024 ordinary only). "
+        "DBS also pays a recurring S$0.50/share special capital return — "
+        "add it back to Rate if you wish to include it in income projections."
+    ),
+    "HPH TRUST USD": (
+        "Distributions are paid in USD, not SGD. "
+        "Rate 0.02 is used here as SGD — cross-check against the prevailing USD/SGD rate "
+        "and adjust Rate to the SGD-equivalent for accurate income figures."
+    ),
+    "KEPPEL": (
+        "Keppel Corp completed a major restructuring in 2023. "
+        "Verify Rate against the latest post-restructuring annual report DPS."
+    ),
+    "MAPLETREE LOG TR": (
+        "Mapletree Logistics has been reducing DPU in recent quarters due to rising costs. "
+        "Verify Rate against the latest declared DPU before relying on income projections."
+    ),
+}
 
-def _si(ticker):
-    """Append .SI exchange suffix to bare SGX codes for Yahoo Finance."""
-    t = str(ticker).strip() if ticker else ""
-    if t and '.' not in t and not t.startswith('^'):
-        return t + '.SI'
-    return t
+MASTER_INTEL = {
+    "EliteUKREIT SGD": {"Rate": 0.00, "PB": 0.00, "Ticker": "MENU", "Sector": "-"},
+    "MDR Limited R": {"Rate": 0.00, "PB": 0.00, "Ticker": "NXNR", "Sector": "-"},
+    "MDR Limited R1": {"Rate": 0.00, "PB": 0.00, "Ticker": "V2OR", "Sector": "-"},
+    "RichCapital": {"Rate": 0.00, "PB": 0.00, "Ticker": "1U8", "Sector": "-"},
+    "Abundance Intl": {"Rate": 0.00, "PB": 0.00, "Ticker": "541", "Sector": "Basic Materials"},
+    "Alita Resources": {"Rate": 0.00, "PB": 0.00, "Ticker": "40F", "Sector": "Basic Materials"},
+    "Anchun Intl": {"Rate": 0.00, "PB": 0.00, "Ticker": "BTX", "Sector": "Basic Materials"},
+    "AnnAik": {"Rate": 0.00, "PB": 0.00, "Ticker": "A52", "Sector": "Basic Materials"},
+    "Ascent Bridge": {"Rate": 0.00, "PB": 0.00, "Ticker": "AWG", "Sector": "Basic Materials"},
+    "Asia Enterprises": {"Rate": 0.00, "PB": 0.00, "Ticker": "A55", "Sector": "Basic Materials"},
+    "AsiaPhos": {"Rate": 0.00, "PB": 0.00, "Ticker": "5WV", "Sector": "Basic Materials"},
+    "BRC Asia": {"Rate": 0.00, "PB": 0.00, "Ticker": "BEC", "Sector": "Basic Materials"},
+    "CNMC Goldmine": {"Rate": 0.00, "PB": 0.00, "Ticker": "5TP", "Sector": "Basic Materials"},
+    "Chemical Ind": {"Rate": 0.00, "PB": 0.00, "Ticker": "C05", "Sector": "Basic Materials"},
+    "ChinaSunsine": {"Rate": 0.00, "PB": 0.00, "Ticker": "QES", "Sector": "Basic Materials"},
+    "EnGro": {"Rate": 0.00, "PB": 0.00, "Ticker": "S44", "Sector": "Basic Materials"},
+    "FortressMinerals": {"Rate": 0.00, "PB": 0.00, "Ticker": "OAJ", "Sector": "Basic Materials"},
+    "GCCP": {"Rate": 0.00, "PB": 0.00, "Ticker": "41T", "Sector": "Basic Materials"},
+    "HG Metal": {"Rate": 0.00, "PB": 0.00, "Ticker": "BTG", "Sector": "Basic Materials"},
+    "Halcyon Agri": {"Rate": 0.00, "PB": 0.00, "Ticker": "5VJ", "Sector": "Basic Materials"},
+    "Infinity Dev": {"Rate": 0.00, "PB": 0.00, "Ticker": "ZBA", "Sector": "Basic Materials"},
+    "Intl Cement": {"Rate": 0.00, "PB": 0.00, "Ticker": "KUO", "Sector": "Basic Materials"},
+    "Jawala": {"Rate": 0.00, "PB": 0.00, "Ticker": "1J7", "Sector": "Basic Materials"},
+    "Jiutian Chemical": {"Rate": 0.00, "PB": 0.00, "Ticker": "C8R", "Sector": "Basic Materials"},
+    "Kep Infra Tr": {"Rate": 0.04, "PB": 2.10, "Ticker": "A7RU", "Sector": "Basic Materials"},
+    "LHT": {"Rate": 0.00, "PB": 0.00, "Ticker": "BEI", "Sector": "Basic Materials"},
+    "Le Tree Holdings": {"Rate": 0.00, "PB": 0.00, "Ticker": "E6R", "Sector": "Basic Materials"},
+    "Lion Asiapac": {"Rate": 0.00, "PB": 0.00, "Ticker": "BAZ", "Sector": "Basic Materials"},
+    "Luxking": {"Rate": 0.00, "PB": 0.00, "Ticker": "BKK", "Sector": "Basic Materials"},
+    "MSC": {"Rate": 0.00, "PB": 0.00, "Ticker": "NPW", "Sector": "Basic Materials"},
+    "MegaChem": {"Rate": 0.00, "PB": 0.00, "Ticker": "5DS", "Sector": "Basic Materials"},
+    "NSL": {"Rate": 0.00, "PB": 0.00, "Ticker": "N02", "Sector": "Basic Materials"},
+    "Nanyang NewDev": {"Rate": 0.00, "PB": 0.00, "Ticker": "M15", "Sector": "Basic Materials"},
+    "New Wave": {"Rate": 0.00, "PB": 0.00, "Ticker": "5FX", "Sector": "Basic Materials"},
+    "Nippecraft": {"Rate": 0.00, "PB": 0.00, "Ticker": "N32", "Sector": "Basic Materials"},
+    "PanUnited": {"Rate": 0.00, "PB": 0.00, "Ticker": "P52", "Sector": "Basic Materials"},
+    "Samurai 2K": {"Rate": 0.00, "PB": 0.00, "Ticker": "Y8E", "Sector": "Basic Materials"},
+    "Sen Yue": {"Rate": 0.00, "PB": 0.00, "Ticker": "5BS", "Sector": "Basic Materials"},
+    "Shen Yao": {"Rate": 0.00, "PB": 0.00, "Ticker": "A78", "Sector": "Basic Materials"},
+    "Soon Lian": {"Rate": 0.00, "PB": 0.00, "Ticker": "5MD", "Sector": "Basic Materials"},
+    "SouthernAlliance": {"Rate": 0.00, "PB": 0.00, "Ticker": "QNS", "Sector": "Basic Materials"},
+    "Sri Trang Agro": {"Rate": 0.00, "PB": 0.00, "Ticker": "NC2", "Sector": "Basic Materials"},
+    "Sri Trang Gloves": {"Rate": 0.00, "PB": 0.00, "Ticker": "STG", "Sector": "Basic Materials"},
+    "Straits Trading": {"Rate": 0.00, "PB": 0.00, "Ticker": "S20", "Sector": "Basic Materials"},
+    "Wilton Resources": {"Rate": 0.00, "PB": 0.00, "Ticker": "5F7", "Sector": "Basic Materials"},
+    "Asian Pay Tv Tr": {"Rate": 0.01, "PB": 0.45, "Ticker": "S7OU", "Sector": "Communication Services"},
+    "BACUI TECH": {"Rate": 0.00, "PB": 0.00, "Ticker": "YYB", "Sector": "Communication Services"},
+    "Captii": {"Rate": 0.00, "PB": 0.00, "Ticker": "AWV", "Sector": "Communication Services"},
+    "Digilife Tech": {"Rate": 0.00, "PB": 0.00, "Ticker": "BAI", "Sector": "Communication Services"},
+    "GHY Culture": {"Rate": 0.00, "PB": 0.00, "Ticker": "XJB", "Sector": "Communication Services"},
+    "Goodwill": {"Rate": 0.00, "PB": 0.00, "Ticker": "GEH", "Sector": "Communication Services"},
+    "MM2 Asia": {"Rate": 0.00, "PB": 0.00, "Ticker": "1B0", "Sector": "Communication Services"},
+    "NetLink NBN Tr": {"Rate": 0.05, "PB": 1.35, "Ticker": "CJLU", "Sector": "Communication Services"},
+    "NoonTalk Media": {"Rate": 0.00, "PB": 0.00, "Ticker": "SEJ", "Sector": "Communication Services"},
+    "Shopper360": {"Rate": 0.00, "PB": 0.00, "Ticker": "1F0", "Sector": "Communication Services"},
+    "Singtel": {"Rate": 0.16, "PB": 1.32, "Ticker": "Z74", "Sector": "Communication Services"},
+    "Singtel 10": {"Rate": 0.16, "PB": 1.32, "Ticker": "Z77", "Sector": "Communication Services"},
+    "Spackman Entmt": {"Rate": 0.00, "PB": 0.00, "Ticker": "9VW", "Sector": "Communication Services"},
+    "StarHub": {"Rate": 0.05, "PB": 2.80, "Ticker": "CC3", "Sector": "Communication Services"},
+    "TeleChoice Intl": {"Rate": 0.00, "PB": 0.00, "Ticker": "T41", "Sector": "Communication Services"},
+    "The Place Hldg": {"Rate": 0.00, "PB": 0.00, "Ticker": "E27", "Sector": "Communication Services"},
+    "UnUsUaL": {"Rate": 0.00, "PB": 0.00, "Ticker": "1D1", "Sector": "Communication Services"},
+    "Vividthree": {"Rate": 0.00, "PB": 0.00, "Ticker": "OMK", "Sector": "Communication Services"},
+    "WinkingStudios": {"Rate": 0.00, "PB": 0.00, "Ticker": "WKS", "Sector": "Communication Services"},
+    "ABR": {"Rate": 0.00, "PB": 0.00, "Ticker": "533", "Sector": "Consumer Cyclical"},
+    "AF Global": {"Rate": 0.00, "PB": 0.00, "Ticker": "L38", "Sector": "Consumer Cyclical"},
+    "AP Strategic": {"Rate": 0.00, "PB": 0.00, "Ticker": "5RA", "Sector": "Consumer Cyclical"},
+    "Acma": {"Rate": 0.00, "PB": 0.00, "Ticker": "AYV", "Sector": "Consumer Cyclical"},
+    "Aspial Corp": {"Rate": 0.00, "PB": 0.00, "Ticker": "A30", "Sector": "Consumer Cyclical"},
+    "Aspial Lifestyle": {"Rate": 0.00, "PB": 0.00, "Ticker": "5UF", "Sector": "Consumer Cyclical"},
+    "Autagco": {"Rate": 0.00, "PB": 0.00, "Ticker": "1D3", "Sector": "Consumer Cyclical"},
+    "Banyan Tree": {"Rate": 0.00, "PB": 0.00, "Ticker": "B58", "Sector": "Consumer Cyclical"},
+    "Bonvests": {"Rate": 0.00, "PB": 0.00, "Ticker": "B28", "Sector": "Consumer Cyclical"},
+    "Bromat": {"Rate": 0.00, "PB": 0.00, "Ticker": "9I7", "Sector": "Consumer Cyclical"},
+    "Casa": {"Rate": 0.00, "PB": 0.00, "Ticker": "C04", "Sector": "Consumer Cyclical"},
+    "Centurion": {"Rate": 0.00, "PB": 0.00, "Ticker": "OU8", "Sector": "Consumer Cyclical"},
+    "China EnvRes": {"Rate": 0.00, "PB": 0.00, "Ticker": "UIX", "Sector": "Consumer Cyclical"},
+    "Combine Will": {"Rate": 0.00, "PB": 0.00, "Ticker": "N0Z", "Sector": "Consumer Cyclical"},
+    "Cortina": {"Rate": 0.00, "PB": 0.00, "Ticker": "C41", "Sector": "Consumer Cyclical"},
+    "Datapulse Tech": {"Rate": 0.00, "PB": 0.00, "Ticker": "BKW", "Sector": "Consumer Cyclical"},
+    "Duty Free Intl": {"Rate": 0.00, "PB": 0.00, "Ticker": "5SO", "Sector": "Consumer Cyclical"},
+    "EuroSports Gbl": {"Rate": 0.00, "PB": 0.00, "Ticker": "5G1", "Sector": "Consumer Cyclical"},
+    "FJ Benjamin": {"Rate": 0.00, "PB": 0.00, "Ticker": "F10", "Sector": "Consumer Cyclical"},
+    "FoodInnovators": {"Rate": 0.00, "PB": 0.00, "Ticker": "KYB", "Sector": "Consumer Cyclical"},
+    "Fuxing China": {"Rate": 0.00, "PB": 0.00, "Ticker": "AWK", "Sector": "Consumer Cyclical"},
+    "Genting Sing": {"Rate": 0.00, "PB": 0.00, "Ticker": "G13", "Sector": "Consumer Cyclical"},
+    "Grand Banks": {"Rate": 0.00, "PB": 0.00, "Ticker": "G50", "Sector": "Consumer Cyclical"},
+    "H2G Green": {"Rate": 0.00, "PB": 0.00, "Ticker": "5AI", "Sector": "Consumer Cyclical"},
+    "HL Global Ent": {"Rate": 0.00, "PB": 0.00, "Ticker": "AVX", "Sector": "Consumer Cyclical"},
+    "HPL": {"Rate": 0.00, "PB": 0.00, "Ticker": "H15", "Sector": "Consumer Cyclical"},
+    "HS Optimus": {"Rate": 0.00, "PB": 0.00, "Ticker": "504", "Sector": "Consumer Cyclical"},
+    "Heeton": {"Rate": 0.00, "PB": 0.00, "Ticker": "5DP", "Sector": "Consumer Cyclical"},
+    "Helens": {"Rate": 0.00, "PB": 0.00, "Ticker": "HLS", "Sector": "Consumer Cyclical"},
+    "Hiap Hoe": {"Rate": 0.00, "PB": 0.00, "Ticker": "5JK", "Sector": "Consumer Cyclical"},
+    "Hong Leong Asia": {"Rate": 0.00, "PB": 0.00, "Ticker": "H22", "Sector": "Consumer Cyclical"},
+    "Hotel Grand": {"Rate": 0.00, "PB": 0.00, "Ticker": "H18", "Sector": "Consumer Cyclical"},
+    "Hotel Royal": {"Rate": 0.00, "PB": 0.00, "Ticker": "H12", "Sector": "Consumer Cyclical"},
+    "Incredible": {"Rate": 0.00, "PB": 0.00, "Ticker": "RDR", "Sector": "Consumer Cyclical"},
+    "Japan Foods": {"Rate": 0.00, "PB": 0.00, "Ticker": "5OI", "Sector": "Consumer Cyclical"},
+    "Jumbo": {"Rate": 0.00, "PB": 0.00, "Ticker": "42R", "Sector": "Consumer Cyclical"},
+    "KTMG": {"Rate": 0.00, "PB": 0.00, "Ticker": "XCF", "Sector": "Consumer Cyclical"},
+    "Katrina": {"Rate": 0.00, "PB": 0.00, "Ticker": "1A0", "Sector": "Consumer Cyclical"},
+    "Kimly": {"Rate": 0.02, "PB": 1.45, "Ticker": "1D0", "Sector": "Consumer Cyclical"},
+    "Koda": {"Rate": 0.00, "PB": 0.00, "Ticker": "BJZ", "Sector": "Consumer Cyclical"},
+    "LY Corp": {"Rate": 0.00, "PB": 0.00, "Ticker": "1H8", "Sector": "Consumer Cyclical"},
+    "Lorenzo Intl": {"Rate": 0.00, "PB": 0.00, "Ticker": "5IE", "Sector": "Consumer Cyclical"},
+    "MSMIntl": {"Rate": 0.00, "PB": 0.00, "Ticker": "51O", "Sector": "Consumer Cyclical"},
+    "Mary Chia": {"Rate": 0.00, "PB": 0.00, "Ticker": "5OX", "Sector": "Consumer Cyclical"},
+    "MeGroup": {"Rate": 0.00, "PB": 0.00, "Ticker": "SJY", "Sector": "Consumer Cyclical"},
+    "Metro": {"Rate": 0.00, "PB": 0.00, "Ticker": "M01", "Sector": "Consumer Cyclical"},
+    "MoneyMax Fin": {"Rate": 0.00, "PB": 0.00, "Ticker": "5WJ", "Sector": "Consumer Cyclical"},
+    "NIO Inc. USD OV": {"Rate": 0.00, "PB": 0.00, "Ticker": "NIO", "Sector": "Consumer Cyclical"},
+    "New Toyo": {"Rate": 0.00, "PB": 0.00, "Ticker": "N08", "Sector": "Consumer Cyclical"},
+    "Noel Gifts Intl": {"Rate": 0.00, "PB": 0.00, "Ticker": "543", "Sector": "Consumer Cyclical"},
+    "OCTOPUS": {"Rate": 0.00, "PB": 0.00, "Ticker": "43A", "Sector": "Consumer Cyclical"},
+    "Old Chang Kee": {"Rate": 0.00, "PB": 0.00, "Ticker": "5ML", "Sector": "Consumer Cyclical"},
+    "Ossia Intl": {"Rate": 0.00, "PB": 0.00, "Ticker": "O08", "Sector": "Consumer Cyclical"},
+    "PSC Corporation": {"Rate": 0.00, "PB": 0.00, "Ticker": "DM0", "Sector": "Consumer Cyclical"},
+    "Parkson Retail": {"Rate": 0.00, "PB": 0.00, "Ticker": "O9E", "Sector": "Consumer Cyclical"},
+    "Pavillon": {"Rate": 0.00, "PB": 0.00, "Ticker": "596", "Sector": "Consumer Cyclical"},
+    "Polaris": {"Rate": 0.00, "PB": 0.00, "Ticker": "5BI", "Sector": "Consumer Cyclical"},
+    "ProsperCap": {"Rate": 0.00, "PB": 0.00, "Ticker": "PPC", "Sector": "Consumer Cyclical"},
+    "ProsperaGlobal": {"Rate": 0.00, "PB": 0.00, "Ticker": "5HH", "Sector": "Consumer Cyclical"},
+    "Qian Hu": {"Rate": 0.00, "PB": 0.00, "Ticker": "BCV", "Sector": "Consumer Cyclical"},
+    "SDAI": {"Rate": 0.00, "PB": 0.00, "Ticker": "5TI", "Sector": "Consumer Cyclical"},
+    "ST Group Food": {"Rate": 0.00, "PB": 0.00, "Ticker": "DRX", "Sector": "Consumer Cyclical"},
+    "SUTL Enterprise": {"Rate": 0.00, "PB": 0.00, "Ticker": "BHU", "Sector": "Consumer Cyclical"},
+    "Sakae": {"Rate": 0.00, "PB": 0.00, "Ticker": "5DO", "Sector": "Consumer Cyclical"},
+    "Shangri-La HKD": {"Rate": 0.00, "PB": 0.00, "Ticker": "S07", "Sector": "Consumer Cyclical"},
+    "Sim Leisure": {"Rate": 0.00, "PB": 0.00, "Ticker": "URR", "Sector": "Consumer Cyclical"},
+    "SingaporeKitchen": {"Rate": 0.00, "PB": 0.00, "Ticker": "5WG", "Sector": "Consumer Cyclical"},
+    "Sitra": {"Rate": 0.00, "PB": 0.00, "Ticker": "5LE", "Sector": "Consumer Cyclical"},
+    "Soup Holdings": {"Rate": 0.00, "PB": 0.00, "Ticker": "5KI", "Sector": "Consumer Cyclical"},
+    "Southern Pkg": {"Rate": 0.00, "PB": 0.00, "Ticker": "BQP", "Sector": "Consumer Cyclical"},
+    "Stamford Land": {"Rate": 0.00, "PB": 0.00, "Ticker": "H07", "Sector": "Consumer Cyclical"},
+    "Stamford Tyres": {"Rate": 0.00, "PB": 0.00, "Ticker": "S29", "Sector": "Consumer Cyclical"},
+    "Straco": {"Rate": 0.00, "PB": 0.00, "Ticker": "S85", "Sector": "Consumer Cyclical"},
+    "TC Auto": {"Rate": 0.00, "PB": 0.00, "Ticker": "VI2", "Sector": "Consumer Cyclical"},
+    "TCIL HK$": {"Rate": 0.00, "PB": 0.00, "Ticker": "T15", "Sector": "Consumer Cyclical"},
+    "TSH": {"Rate": 0.00, "PB": 0.00, "Ticker": "KUH", "Sector": "Consumer Cyclical"},
+    "Taka Jewellery": {"Rate": 0.00, "PB": 0.00, "Ticker": "42L", "Sector": "Consumer Cyclical"},
+    "Tat Seng Pkg": {"Rate": 0.00, "PB": 0.00, "Ticker": "T12", "Sector": "Consumer Cyclical"},
+    "Thakral": {"Rate": 0.00, "PB": 0.00, "Ticker": "AWI", "Sector": "Consumer Cyclical"},
+    "TheHourGlass": {"Rate": 0.00, "PB": 0.00, "Ticker": "AGS", "Sector": "Consumer Cyclical"},
+    "Travelite": {"Rate": 0.00, "PB": 0.00, "Ticker": "BCZ", "Sector": "Consumer Cyclical"},
+    "Tung Lok Rest": {"Rate": 0.00, "PB": 0.00, "Ticker": "540", "Sector": "Consumer Cyclical"},
+    "Union Gas": {"Rate": 0.00, "PB": 0.00, "Ticker": "1F2", "Sector": "Consumer Cyclical"},
+    "VICOM Ltd": {"Rate": 0.00, "PB": 0.00, "Ticker": "WJP", "Sector": "Consumer Cyclical"},
+    "ValueMax": {"Rate": 0.00, "PB": 0.00, "Ticker": "T6I", "Sector": "Consumer Cyclical"},
+    "Vins Holdings": {"Rate": 0.00, "PB": 0.00, "Ticker": "VIN", "Sector": "Consumer Cyclical"},
+    "Y Ventures": {"Rate": 0.00, "PB": 0.00, "Ticker": "1F1", "Sector": "Consumer Cyclical"},
+    "YHI Intl": {"Rate": 0.00, "PB": 0.00, "Ticker": "BPF", "Sector": "Consumer Cyclical"},
+    "YKGI": {"Rate": 0.00, "PB": 0.00, "Ticker": "YK9", "Sector": "Consumer Cyclical"},
+    "Zhongmin Baihui": {"Rate": 0.00, "PB": 0.00, "Ticker": "5SR", "Sector": "Consumer Cyclical"},
+    "Bumitama Agri": {"Rate": 0.00, "PB": 0.00, "Ticker": "P8Z", "Sector": "Consumer Defensive"},
+    "Camsing Hc": {"Rate": 0.00, "PB": 0.00, "Ticker": "BAC", "Sector": "Consumer Defensive"},
+    "China Fishery": {"Rate": 0.00, "PB": 0.00, "Ticker": "B0Z", "Sector": "Consumer Defensive"},
+    "China Mining": {"Rate": 0.00, "PB": 0.00, "Ticker": "BHD", "Sector": "Consumer Defensive"},
+    "ChinaKangdaFood": {"Rate": 0.00, "PB": 0.00, "Ticker": "P74", "Sector": "Consumer Defensive"},
+    "DFIRG USD": {"Rate": 0.00, "PB": 0.00, "Ticker": "D01", "Sector": "Consumer Defensive"},
+    "Del Monte Pac": {"Rate": 0.00, "PB": 0.00, "Ticker": "D03", "Sector": "Consumer Defensive"},
+    "Delfi": {"Rate": 0.00, "PB": 0.00, "Ticker": "P34", "Sector": "Consumer Defensive"},
+    "Edition": {"Rate": 0.00, "PB": 0.00, "Ticker": "5HG", "Sector": "Consumer Defensive"},
+    "Emperador Inc.": {"Rate": 0.00, "PB": 0.00, "Ticker": "EMI", "Sector": "Consumer Defensive"},
+    "Envictus": {"Rate": 0.00, "PB": 0.00, "Ticker": "BQD", "Sector": "Consumer Defensive"},
+    "F & N": {"Rate": 0.00, "PB": 0.00, "Ticker": "F99", "Sector": "Consumer Defensive"},
+    "First Resources": {"Rate": 0.00, "PB": 0.00, "Ticker": "EB5", "Sector": "Consumer Defensive"},
+    "Food Empire": {"Rate": 0.00, "PB": 0.00, "Ticker": "F03", "Sector": "Consumer Defensive"},
+    "Golden Agri-Res": {"Rate": 0.00, "PB": 0.00, "Ticker": "E5H", "Sector": "Consumer Defensive"},
+    "Hosen": {"Rate": 0.00, "PB": 0.00, "Ticker": "5EV", "Sector": "Consumer Defensive"},
+    "Indofood Agri": {"Rate": 0.00, "PB": 0.00, "Ticker": "5JS", "Sector": "Consumer Defensive"},
+    "JB Foods": {"Rate": 0.00, "PB": 0.00, "Ticker": "BEW", "Sector": "Consumer Defensive"},
+    "Kencana Agri": {"Rate": 0.00, "PB": 0.00, "Ticker": "BNE", "Sector": "Consumer Defensive"},
+    "Khong Guan": {"Rate": 0.00, "PB": 0.00, "Ticker": "K03", "Sector": "Consumer Defensive"},
+    "Leong Guan Hldgs": {"Rate": 0.00, "PB": 0.00, "Ticker": "LGH", "Sector": "Consumer Defensive"},
+    "Mewah Intl": {"Rate": 0.00, "PB": 0.00, "Ticker": "MV4", "Sector": "Consumer Defensive"},
+    "MindChamps": {"Rate": 0.00, "PB": 0.00, "Ticker": "CNE", "Sector": "Consumer Defensive"},
+    "NutryFarm": {"Rate": 0.00, "PB": 0.00, "Ticker": "AZT", "Sector": "Consumer Defensive"},
+    "OTS Holdings": {"Rate": 0.00, "PB": 0.00, "Ticker": "OTS", "Sector": "Consumer Defensive"},
+    "Oceanus": {"Rate": 0.00, "PB": 0.00, "Ticker": "579", "Sector": "Consumer Defensive"},
+    "Olam Group": {"Rate": 0.07, "PB": 0.58, "Ticker": "VC2", "Sector": "Consumer Defensive"},
+    "Overseas Edu": {"Rate": 0.00, "PB": 0.00, "Ticker": "RQ1", "Sector": "Consumer Defensive"},
+    "Pacific Andes": {"Rate": 0.00, "PB": 0.00, "Ticker": "P11", "Sector": "Consumer Defensive"},
+    "QAF": {"Rate": 0.00, "PB": 0.00, "Ticker": "Q01", "Sector": "Consumer Defensive"},
+    "Raffles Edu": {"Rate": 0.00, "PB": 0.00, "Ticker": "NR7", "Sector": "Consumer Defensive"},
+    "Sheng Siong": {"Rate": 0.00, "PB": 0.00, "Ticker": "OV8", "Sector": "Consumer Defensive"},
+    "Shenshan": {"Rate": 0.00, "PB": 0.00, "Ticker": "BKV", "Sector": "Consumer Defensive"},
+    "Sino Grandness": {"Rate": 0.00, "PB": 0.00, "Ticker": "T4B", "Sector": "Consumer Defensive"},
+    "SunMoonFood": {"Rate": 0.00, "PB": 0.00, "Ticker": "AAJ", "Sector": "Consumer Defensive"},
+    "Suntar Eco-City": {"Rate": 0.00, "PB": 0.00, "Ticker": "BKZ", "Sector": "Consumer Defensive"},
+    "TSH Resources": {"Rate": 0.00, "PB": 0.00, "Ticker": "TSH", "Sector": "Consumer Defensive"},
+    "ThaiBev": {"Rate": 0.00, "PB": 0.00, "Ticker": "Y92", "Sector": "Consumer Defensive"},
+    "United Food": {"Rate": 0.00, "PB": 0.00, "Ticker": "AZR", "Sector": "Consumer Defensive"},
+    "Wilmar Intl": {"Rate": 0.17, "PB": 0.78, "Ticker": "F34", "Sector": "Consumer Defensive"},
+    "Yeo Hiap Seng": {"Rate": 0.00, "PB": 0.00, "Ticker": "Y03", "Sector": "Consumer Defensive"},
+    "Zhongxin Fruit": {"Rate": 0.00, "PB": 0.00, "Ticker": "5EG", "Sector": "Consumer Defensive"},
+    "Zixin": {"Rate": 0.00, "PB": 0.00, "Ticker": "42W", "Sector": "Consumer Defensive"},
+    "AMOS Group": {"Rate": 0.00, "PB": 0.00, "Ticker": "49B", "Sector": "Energy"},
+    "AP Oil": {"Rate": 0.00, "PB": 0.00, "Ticker": "5AU", "Sector": "Energy"},
+    "Advanced": {"Rate": 0.00, "PB": 0.00, "Ticker": "BLZ", "Sector": "Energy"},
+    "AnAn Intl": {"Rate": 0.00, "PB": 0.00, "Ticker": "Y35", "Sector": "Energy"},
+    "Annica": {"Rate": 0.00, "PB": 0.00, "Ticker": "5AL", "Sector": "Energy"},
+    "Asian Micro": {"Rate": 0.00, "PB": 0.00, "Ticker": "585", "Sector": "Energy"},
+    "Baker Technology": {"Rate": 0.00, "PB": 0.00, "Ticker": "BTP", "Sector": "Energy"},
+    "Beng Kuang": {"Rate": 0.00, "PB": 0.00, "Ticker": "BEZ", "Sector": "Energy"},
+    "BlackGoldNatural": {"Rate": 0.00, "PB": 0.00, "Ticker": "41H", "Sector": "Energy"},
+    "CH Offshore": {"Rate": 0.00, "PB": 0.00, "Ticker": "C13", "Sector": "Energy"},
+    "CapAllianz": {"Rate": 0.00, "PB": 0.00, "Ticker": "594", "Sector": "Energy"},
+    "China Aviation": {"Rate": 0.00, "PB": 0.00, "Ticker": "G92", "Sector": "Energy"},
+    "Coolan Group": {"Rate": 0.00, "PB": 0.00, "Ticker": "BMT", "Sector": "Energy"},
+    "Ezra": {"Rate": 0.00, "PB": 0.00, "Ticker": "5DN", "Sector": "Energy"},
+    "Federal Int": {"Rate": 0.00, "PB": 0.00, "Ticker": "BDU", "Sector": "Energy"},
+    "Geo Energy Res": {"Rate": 0.00, "PB": 0.00, "Ticker": "RE4", "Sector": "Energy"},
+    "Heatec Jietong": {"Rate": 0.00, "PB": 0.00, "Ticker": "5OR", "Sector": "Energy"},
+    "Hengyang Petro": {"Rate": 0.00, "PB": 0.00, "Ticker": "5PD", "Sector": "Energy"},
+    "Interra Resource": {"Rate": 0.00, "PB": 0.00, "Ticker": "5GI", "Sector": "Energy"},
+    "Kim Heng": {"Rate": 0.00, "PB": 0.00, "Ticker": "5G2", "Sector": "Energy"},
+    "MTQ": {"Rate": 0.00, "PB": 0.00, "Ticker": "M05", "Sector": "Energy"},
+    "Mencast": {"Rate": 0.00, "PB": 0.00, "Ticker": "5NF", "Sector": "Energy"},
+    "Mermaid Maritime": {"Rate": 0.00, "PB": 0.00, "Ticker": "DU4", "Sector": "Energy"},
+    "RH PetroGas": {"Rate": 0.00, "PB": 0.00, "Ticker": "T13", "Sector": "Energy"},
+    "Rex Intl": {"Rate": 0.00, "PB": 0.00, "Ticker": "5WH", "Sector": "Energy"},
+    "Seatrium Ltd": {"Rate": 0.02, "PB": 1.10, "Ticker": "500", "Sector": "Energy"},
+    "Sinostar Pec": {"Rate": 0.00, "PB": 0.00, "Ticker": "C9Q", "Sector": "Energy"},
+    "Teho Intl": {"Rate": 0.00, "PB": 0.00, "Ticker": "5OQ", "Sector": "Energy"},
+    "Universal Res": {"Rate": 0.00, "PB": 0.00, "Ticker": "BGO", "Sector": "Energy"},
+    "AMTD IDEA OV": {"Rate": 0.00, "PB": 0.00, "Ticker": "HKB", "Sector": "Financial Services"},
+    "B&M Hldg": {"Rate": 0.00, "PB": 0.00, "Ticker": "CJN", "Sector": "Financial Services"},
+    "CreditBureauAsia": {"Rate": 0.00, "PB": 2.34, "Ticker": "TCU", "Sector": "Financial Services"},
+    "DBS": {"Rate": 3.24, "PB": 0.00, "Ticker": "D05", "Sector": "Financial Services"},
+    "Global Inv": {"Rate": 0.00, "PB": 0.00, "Ticker": "B73", "Sector": "Financial Services"},
+    "Great Eastern": {"Rate": 0.00, "PB": 0.00, "Ticker": "G07", "Sector": "Financial Services"},
+    "Heptamax": {"Rate": 0.00, "PB": 0.00, "Ticker": "8A1", "Sector": "Financial Services"},
+    "Hong Leong Fin": {"Rate": 0.00, "PB": 0.00, "Ticker": "S41", "Sector": "Financial Services"},
+    "Hotung Inv": {"Rate": 0.00, "PB": 0.00, "Ticker": "BLS", "Sector": "Financial Services"},
+    "IFS Capital": {"Rate": 0.00, "PB": 0.00, "Ticker": "I49", "Sector": "Financial Services"},
+    "Joyas Intl": {"Rate": 0.00, "PB": 0.00, "Ticker": "E9L", "Sector": "Financial Services"},
+    "Luminor": {"Rate": 0.00, "PB": 0.00, "Ticker": "5UA", "Sector": "Financial Services"},
+    "Net Pac Hldgs": {"Rate": 0.00, "PB": 0.00, "Ticker": "5QY", "Sector": "Financial Services"},
+    "Nomura Yen1k": {"Rate": 0.00, "PB": 0.00, "Ticker": "N33", "Sector": "Financial Services"},
+    "OCBC Bank": {"Rate": 0.86, "PB": 1.18, "Ticker": "O39", "Sector": "Financial Services"},
+    "Pacific Century": {"Rate": 0.00, "PB": 0.00, "Ticker": "P15", "Sector": "Financial Services"},
+    "Prudential USD": {"Rate": 0.00, "PB": 0.00, "Ticker": "K6S", "Sector": "Financial Services"},
+    "SGX": {"Rate": 0.00, "PB": 0.00, "Ticker": "S68", "Sector": "Financial Services"},
+    "Sing Inv & Fin": {"Rate": 0.00, "PB": 0.00, "Ticker": "S35", "Sector": "Financial Services"},
+    "Spura Finance": {"Rate": 0.00, "PB": 0.00, "Ticker": "S23", "Sector": "Financial Services"},
+    "TIH": {"Rate": 0.00, "PB": 0.00, "Ticker": "T55", "Sector": "Financial Services"},
+    "Trendlines": {"Rate": 0.00, "PB": 0.00, "Ticker": "42T", "Sector": "Financial Services"},
+    "UOB": {"Rate": 1.70, "PB": 1.18, "Ticker": "U11", "Sector": "Financial Services"},
+    "UOB Kay Hian": {"Rate": 0.00, "PB": 0.00, "Ticker": "U10", "Sector": "Financial Services"},
+    "UOI": {"Rate": 0.00, "PB": 0.00, "Ticker": "U13", "Sector": "Financial Services"},
+    "YZJ Fin Hldg": {"Rate": 0.00, "PB": 0.00, "Ticker": "YF8", "Sector": "Financial Services"},
+    "YZJ Maritime": {"Rate": 0.00, "PB": 0.00, "Ticker": "8YZ", "Sector": "Financial Services"},
+    "AJJ Medtech": {"Rate": 0.00, "PB": 0.00, "Ticker": "584", "Sector": "Healthcare"},
+    "Accrelist Ltd": {"Rate": 0.00, "PB": 0.00, "Ticker": "QZG", "Sector": "Healthcare"},
+    "Alliance HC": {"Rate": 0.00, "PB": 0.00, "Ticker": "MIJ", "Sector": "Healthcare"},
+    "Aoxin Q & M": {"Rate": 0.00, "PB": 0.00, "Ticker": "1D4", "Sector": "Healthcare"},
+    "Asia Vets": {"Rate": 0.00, "PB": 0.00, "Ticker": "5RE", "Sector": "Healthcare"},
+    "AsiaMedic": {"Rate": 0.00, "PB": 0.00, "Ticker": "505", "Sector": "Healthcare"},
+    "B Wilshire Ltd": {"Rate": 0.00, "PB": 0.00, "Ticker": "9QX", "Sector": "Healthcare"},
+    "CMS": {"Rate": 0.00, "PB": 0.00, "Ticker": "8A8", "Sector": "Healthcare"},
+    "Clearbridge": {"Rate": 0.00, "PB": 0.00, "Ticker": "1H3", "Sector": "Healthcare"},
+    "Cordlife": {"Rate": 0.00, "PB": 0.00, "Ticker": "P8A", "Sector": "Healthcare"},
+    "EFH Ltd": {"Rate": 0.00, "PB": 0.00, "Ticker": "8YY", "Sector": "Healthcare"},
+    "HC Surgical": {"Rate": 0.00, "PB": 0.00, "Ticker": "1B1", "Sector": "Healthcare"},
+    "Haw Par": {"Rate": 0.00, "PB": 0.00, "Ticker": "H02", "Sector": "Healthcare"},
+    "Hyphens Pharma": {"Rate": 0.00, "PB": 0.00, "Ticker": "1J5", "Sector": "Healthcare"},
+    "IHH": {"Rate": 0.00, "PB": 0.00, "Ticker": "Q0F", "Sector": "Healthcare"},
+    "ISEC": {"Rate": 0.00, "PB": 0.00, "Ticker": "40T", "Sector": "Healthcare"},
+    "IX Biopharma": {"Rate": 0.00, "PB": 0.00, "Ticker": "42C", "Sector": "Healthcare"},
+    "Livingstone": {"Rate": 0.00, "PB": 0.00, "Ticker": "PRH", "Sector": "Healthcare"},
+    "Lonza": {"Rate": 0.00, "PB": 0.00, "Ticker": "O6Z", "Sector": "Healthcare"},
+    "MediLifestyle": {"Rate": 0.00, "PB": 0.00, "Ticker": "Z4D", "Sector": "Healthcare"},
+    "Medinex": {"Rate": 0.00, "PB": 0.00, "Ticker": "OTX", "Sector": "Healthcare"},
+    "Medtecs Intl": {"Rate": 0.00, "PB": 0.00, "Ticker": "546", "Sector": "Healthcare"},
+    "Meta Health": {"Rate": 0.00, "PB": 0.00, "Ticker": "5DX", "Sector": "Healthcare"},
+    "OUE Healthcare": {"Rate": 0.00, "PB": 0.00, "Ticker": "5WA", "Sector": "Healthcare"},
+    "Pasture Holdings": {"Rate": 0.00, "PB": 0.00, "Ticker": "UUK", "Sector": "Healthcare"},
+    "Pharmesis Intl": {"Rate": 0.00, "PB": 0.00, "Ticker": "BFK", "Sector": "Healthcare"},
+    "Q&M Dental": {"Rate": 0.00, "PB": 0.00, "Ticker": "QC7", "Sector": "Healthcare"},
+    "Quantum Health": {"Rate": 0.00, "PB": 0.00, "Ticker": "V8Y", "Sector": "Healthcare"},
+    "Raffles Medical": {"Rate": 0.00, "PB": 0.00, "Ticker": "BSL", "Sector": "Healthcare"},
+    "Riverstone": {"Rate": 0.00, "PB": 0.00, "Ticker": "AP4", "Sector": "Healthcare"},
+    "SAM Holdings": {"Rate": 0.00, "PB": 0.00, "Ticker": "9G2", "Sector": "Healthcare"},
+    "Sing Paincare": {"Rate": 0.00, "PB": 0.00, "Ticker": "FRQ", "Sector": "Healthcare"},
+    "TJ DaRenTang USD": {"Rate": 0.00, "PB": 0.00, "Ticker": "T14", "Sector": "Healthcare"},
+    "Thomson Medical": {"Rate": 0.00, "PB": 0.00, "Ticker": "A50", "Sector": "Healthcare"},
+    "Top Glove": {"Rate": 0.00, "PB": 0.00, "Ticker": "BVA", "Sector": "Healthcare"},
+    "UGHealthcare": {"Rate": 0.00, "PB": 0.00, "Ticker": "8K7", "Sector": "Healthcare"},
+    "ULTRAGREEN AI USD": {"Rate": 0.00, "PB": 0.00, "Ticker": "ULG", "Sector": "Healthcare"},
+    "UpHealth Group": {"Rate": 0.00, "PB": 0.00, "Ticker": "GRQ", "Sector": "Healthcare"},
+    "Vicplas Intl": {"Rate": 0.00, "PB": 0.00, "Ticker": "569", "Sector": "Healthcare"},
+    "A-Smart": {"Rate": 0.00, "PB": 0.00, "Ticker": "BQC", "Sector": "Industrials"},
+    "A-Sonic Aero": {"Rate": 0.00, "PB": 0.00, "Ticker": "BTJ", "Sector": "Industrials"},
+    "ASL Marine": {"Rate": 0.00, "PB": 0.00, "Ticker": "A04", "Sector": "Industrials"},
+    "Abundante": {"Rate": 0.00, "PB": 0.00, "Ticker": "570", "Sector": "Industrials"},
+    "Acesian Partners": {"Rate": 0.00, "PB": 0.00, "Ticker": "5FW", "Sector": "Industrials"},
+    "AcroMeta": {"Rate": 0.00, "PB": 0.00, "Ticker": "43F", "Sector": "Industrials"},
+    "Advancer Global": {"Rate": 0.00, "PB": 0.00, "Ticker": "43Q", "Sector": "Industrials"},
+    "Adventus": {"Rate": 0.00, "PB": 0.00, "Ticker": "5EF", "Sector": "Industrials"},
+    "Aedge Group": {"Rate": 0.00, "PB": 0.00, "Ticker": "XVG", "Sector": "Industrials"},
+    "Atlantic Nav": {"Rate": 0.00, "PB": 0.00, "Ticker": "5UL", "Sector": "Industrials"},
+    "Attika Group": {"Rate": 0.00, "PB": 0.00, "Ticker": "53W", "Sector": "Industrials"},
+    "Audience": {"Rate": 0.00, "PB": 0.00, "Ticker": "1AZ", "Sector": "Industrials"},
+    "AusGroup": {"Rate": 0.00, "PB": 0.00, "Ticker": "5GJ", "Sector": "Industrials"},
+    "Avarga Ltd": {"Rate": 0.00, "PB": 0.00, "Ticker": "X5N", "Sector": "Industrials"},
+    "BBR": {"Rate": 0.00, "PB": 0.00, "Ticker": "KJ5", "Sector": "Industrials"},
+    "BH Global": {"Rate": 0.00, "PB": 0.00, "Ticker": "BQN", "Sector": "Industrials"},
+    "Boldtek": {"Rate": 0.00, "PB": 0.00, "Ticker": "5VI", "Sector": "Industrials"},
+    "Boustead": {"Rate": 0.00, "PB": 0.00, "Ticker": "F9D", "Sector": "Industrials"},
+    "Brook Crompton": {"Rate": 0.00, "PB": 0.00, "Ticker": "AWC", "Sector": "Industrials"},
+    "CFM": {"Rate": 0.00, "PB": 0.00, "Ticker": "5EB", "Sector": "Industrials"},
+    "COSCO SHP SG": {"Rate": 0.00, "PB": 0.00, "Ticker": "F83", "Sector": "Industrials"},
+    "CSC": {"Rate": 0.00, "PB": 0.00, "Ticker": "C06", "Sector": "Industrials"},
+    "Chasen": {"Rate": 0.00, "PB": 0.00, "Ticker": "5NV", "Sector": "Industrials"},
+    "ChinaKundaTech": {"Rate": 0.00, "PB": 0.00, "Ticker": "GU5", "Sector": "Industrials"},
+    "Civmec": {"Rate": 0.00, "PB": 0.00, "Ticker": "P9D", "Sector": "Industrials"},
+    "ComfortDelGro": {"Rate": 0.07, "PB": 1.05, "Ticker": "C52", "Sector": "Industrials"},
+    "Courage Inv": {"Rate": 0.00, "PB": 0.00, "Ticker": "CIN", "Sector": "Industrials"},
+    "Darco Water Tech": {"Rate": 0.00, "PB": 0.00, "Ticker": "BLR", "Sector": "Industrials"},
+    "Dezign Format": {"Rate": 0.00, "PB": 0.00, "Ticker": "UZF", "Sector": "Industrials"},
+    "ES": {"Rate": 0.00, "PB": 0.00, "Ticker": "5RC", "Sector": "Industrials"},
+    "EcoWise": {"Rate": 0.00, "PB": 0.00, "Ticker": "5CT", "Sector": "Industrials"},
+    "Eindec": {"Rate": 0.00, "PB": 0.00, "Ticker": "42Z", "Sector": "Industrials"},
+    "Eneco Energy": {"Rate": 0.00, "PB": 0.00, "Ticker": "R14", "Sector": "Industrials"},
+    "Enviro-Hub": {"Rate": 0.00, "PB": 0.00, "Ticker": "L23", "Sector": "Industrials"},
+    "Ever Glory": {"Rate": 0.00, "PB": 0.00, "Ticker": "ZKX", "Sector": "Industrials"},
+    "FSL Trust": {"Rate": 0.00, "PB": 0.00, "Ticker": "D8DU", "Sector": "Industrials"},
+    "Far East": {"Rate": 0.00, "PB": 0.00, "Ticker": "5TJ", "Sector": "Industrials"},
+    "Fu Yu": {"Rate": 0.00, "PB": 0.00, "Ticker": "F13", "Sector": "Industrials"},
+    "Fuji Offset": {"Rate": 0.00, "PB": 0.00, "Ticker": "508", "Sector": "Industrials"},
+    "GDS Global": {"Rate": 0.00, "PB": 0.00, "Ticker": "5VP", "Sector": "Industrials"},
+    "GKE": {"Rate": 0.00, "PB": 0.00, "Ticker": "595", "Sector": "Industrials"},
+    "GP Industries": {"Rate": 0.00, "PB": 0.00, "Ticker": "G20", "Sector": "Industrials"},
+    "GSH": {"Rate": 0.00, "PB": 0.00, "Ticker": "BDX", "Sector": "Industrials"},
+    "Green Build": {"Rate": 0.00, "PB": 0.00, "Ticker": "Y06", "Sector": "Industrials"},
+    "HGH": {"Rate": 0.00, "PB": 0.00, "Ticker": "5GZ", "Sector": "Industrials"},
+    "HPH Trust SGD": {"Rate": 0.00, "PB": 0.00, "Ticker": "P7VU", "Sector": "Industrials"},
+    "HPH Trust USD": {"Rate": 0.02, "PB": 0.35, "Ticker": "NS8U", "Sector": "Industrials"},
+    "HRnetGroup": {"Rate": 0.00, "PB": 0.00, "Ticker": "CHZ", "Sector": "Industrials"},
+    "Hafary": {"Rate": 0.00, "PB": 0.00, "Ticker": "5VS", "Sector": "Industrials"},
+    "Hiap Seng Ind": {"Rate": 0.00, "PB": 0.00, "Ticker": "1L2", "Sector": "Industrials"},
+    "Hiap Tong": {"Rate": 0.00, "PB": 0.00, "Ticker": "5PO", "Sector": "Industrials"},
+    "Hock Lian Seng": {"Rate": 0.00, "PB": 0.00, "Ticker": "J2T", "Sector": "Industrials"},
+    "Hoe Leong": {"Rate": 0.00, "PB": 0.00, "Ticker": "H20", "Sector": "Industrials"},
+    "Hor Kew": {"Rate": 0.00, "PB": 0.00, "Ticker": "BBP", "Sector": "Industrials"},
+    "Huationg Global": {"Rate": 0.00, "PB": 0.00, "Ticker": "41B", "Sector": "Industrials"},
+    "IPS Securex": {"Rate": 0.00, "PB": 0.00, "Ticker": "42N", "Sector": "Industrials"},
+    "ISDN": {"Rate": 0.00, "PB": 0.00, "Ticker": "I07", "Sector": "Industrials"},
+    "ISOTeam": {"Rate": 0.00, "PB": 0.00, "Ticker": "5WF", "Sector": "Industrials"},
+    "InnoTek": {"Rate": 0.00, "PB": 0.00, "Ticker": "M14", "Sector": "Industrials"},
+    "Intraco": {"Rate": 0.00, "PB": 0.00, "Ticker": "I06", "Sector": "Industrials"},
+    "JEP": {"Rate": 0.00, "PB": 0.00, "Ticker": "1J4", "Sector": "Industrials"},
+    "JMH USD": {"Rate": 0.00, "PB": 0.00, "Ticker": "J36", "Sector": "Industrials"},
+    "Jardine C&C": {"Rate": 0.00, "PB": 0.00, "Ticker": "C07", "Sector": "Industrials"},
+    "KIN": {"Rate": 0.00, "PB": 0.00, "Ticker": "KIN", "Sector": "Industrials"},
+    "KSH": {"Rate": 0.00, "PB": 0.00, "Ticker": "ER0", "Sector": "Industrials"},
+    "Keong Hong": {"Rate": 0.00, "PB": 0.00, "Ticker": "5TT", "Sector": "Industrials"},
+    "Keppel": {"Rate": 0.47, "PB": 1.15, "Ticker": "BN4", "Sector": "Industrials"},
+    "King Wan": {"Rate": 0.00, "PB": 0.00, "Ticker": "554", "Sector": "Industrials"},
+    "KingsmenCreative": {"Rate": 0.00, "PB": 0.00, "Ticker": "5MZ", "Sector": "Industrials"},
+    "Koh Bros": {"Rate": 0.00, "PB": 0.00, "Ticker": "K75", "Sector": "Industrials"},
+    "Koh Eco": {"Rate": 0.00, "PB": 0.00, "Ticker": "5HV", "Sector": "Industrials"},
+    "Kori": {"Rate": 0.00, "PB": 0.00, "Ticker": "5VC", "Sector": "Industrials"},
+    "Koyo Intl": {"Rate": 0.00, "PB": 0.00, "Ticker": "5OC", "Sector": "Industrials"},
+    "LMS Compliance": {"Rate": 0.00, "PB": 0.00, "Ticker": "LMS", "Sector": "Industrials"},
+    "LS 2 Holdings": {"Rate": 0.00, "PB": 0.00, "Ticker": "ENV", "Sector": "Industrials"},
+    "Leader Env": {"Rate": 0.00, "PB": 0.00, "Ticker": "LS9", "Sector": "Industrials"},
+    "Ley Choon": {"Rate": 0.00, "PB": 0.00, "Ticker": "Q0X", "Sector": "Industrials"},
+    "Lincotrade": {"Rate": 0.00, "PB": 0.00, "Ticker": "BFT", "Sector": "Industrials"},
+    "Lum Chang": {"Rate": 0.00, "PB": 0.00, "Ticker": "L19", "Sector": "Industrials"},
+    "Lum Chang Creat": {"Rate": 0.00, "PB": 0.00, "Ticker": "LCC", "Sector": "Industrials"},
+    "MarcoPolo Marine": {"Rate": 0.00, "PB": 0.00, "Ticker": "5LY", "Sector": "Industrials"},
+    "Metech Intl": {"Rate": 0.00, "PB": 0.00, "Ticker": "V3M", "Sector": "Industrials"},
+    "Miyoshi": {"Rate": 0.00, "PB": 0.00, "Ticker": "M03", "Sector": "Industrials"},
+    "Mooreast": {"Rate": 0.00, "PB": 0.00, "Ticker": "1V3", "Sector": "Industrials"},
+    "Mun Siong Engg": {"Rate": 0.00, "PB": 0.00, "Ticker": "MF6", "Sector": "Industrials"},
+    "Nam Lee Metal": {"Rate": 0.00, "PB": 0.00, "Ticker": "G0I", "Sector": "Industrials"},
+    "NamCheong": {"Rate": 0.00, "PB": 0.00, "Ticker": "1MZ", "Sector": "Industrials"},
+    "Natural Cool": {"Rate": 0.00, "PB": 0.00, "Ticker": "5IF", "Sector": "Industrials"},
+    "Nordic": {"Rate": 0.00, "PB": 0.00, "Ticker": "MR7", "Sector": "Industrials"},
+    "OKP": {"Rate": 0.00, "PB": 0.00, "Ticker": "5CF", "Sector": "Industrials"},
+    "Ocean Sky Intl": {"Rate": 0.00, "PB": 0.00, "Ticker": "1B6", "Sector": "Industrials"},
+    "OceanScape Intl": {"Rate": 0.00, "PB": 0.00, "Ticker": "V2Y", "Sector": "Industrials"},
+    "Oiltek": {"Rate": 0.00, "PB": 0.00, "Ticker": "HQU", "Sector": "Industrials"},
+    "PacificRadiance": {"Rate": 0.00, "PB": 0.00, "Ticker": "RXS", "Sector": "Industrials"},
+    "Penguin Intl": {"Rate": 0.00, "PB": 0.00, "Ticker": "BTM", "Sector": "Industrials"},
+    "Progen": {"Rate": 0.00, "PB": 0.00, "Ticker": "583", "Sector": "Industrials"},
+    "Raffles Infrastructure": {"Rate": 0.00, "PB": 0.00, "Ticker": "LUY", "Sector": "Industrials"},
+    "Reclaims Global": {"Rate": 0.00, "PB": 0.00, "Ticker": "NEX", "Sector": "Industrials"},
+    "ResourcesGbl": {"Rate": 0.00, "PB": 0.00, "Ticker": "V7R", "Sector": "Industrials"},
+    "SATS": {"Rate": 0.05, "PB": 1.85, "Ticker": "S58", "Sector": "Industrials"},
+    "SBS Transit": {"Rate": 0.00, "PB": 0.00, "Ticker": "S61", "Sector": "Industrials"},
+    "SHS": {"Rate": 0.00, "PB": 0.00, "Ticker": "566", "Sector": "Industrials"},
+    "SIA": {"Rate": 0.00, "PB": 0.00, "Ticker": "C6L", "Sector": "Industrials"},
+    "SIA Engineering": {"Rate": 0.08, "PB": 1.25, "Ticker": "S59", "Sector": "Industrials"},
+    "ST Engineering": {"Rate": 0.16, "PB": 4.50, "Ticker": "S63", "Sector": "Industrials"},
+    "Salt Investments": {"Rate": 0.00, "PB": 0.00, "Ticker": "FQ7", "Sector": "Industrials"},
+    "SamuderaShipping": {"Rate": 0.00, "PB": 0.00, "Ticker": "S56", "Sector": "Industrials"},
+    "Sanli Env": {"Rate": 0.00, "PB": 0.00, "Ticker": "1000", "Sector": "Industrials"},
+    "Sapphire": {"Rate": 0.00, "PB": 0.00, "Ticker": "BRD", "Sector": "Industrials"},
+    "Secura": {"Rate": 0.00, "PB": 0.00, "Ticker": "43B", "Sector": "Industrials"},
+    "Sevens Atelier": {"Rate": 0.00, "PB": 0.00, "Ticker": "5EW", "Sector": "Industrials"},
+    "Shanaya": {"Rate": 0.00, "PB": 0.00, "Ticker": "SES", "Sector": "Industrials"},
+    "Shanghai Turbo": {"Rate": 0.00, "PB": 0.00, "Ticker": "AWM", "Sector": "Industrials"},
+    "Sheffield Green": {"Rate": 0.00, "PB": 0.00, "Ticker": "SGR", "Sector": "Industrials"},
+    "Sin Heng Mach": {"Rate": 0.00, "PB": 0.00, "Ticker": "BKA", "Sector": "Industrials"},
+    "SingPost": {"Rate": 0.00, "PB": 0.00, "Ticker": "S08", "Sector": "Industrials"},
+    "SingShipping": {"Rate": 0.00, "PB": 0.00, "Ticker": "S19", "Sector": "Industrials"},
+    "Skylink": {"Rate": 0.00, "PB": 0.00, "Ticker": "XZB", "Sector": "Industrials"},
+    "SoilbuildConstr": {"Rate": 0.00, "PB": 0.00, "Ticker": "ZQM", "Sector": "Industrials"},
+    "Southern Arch": {"Rate": 0.00, "PB": 0.00, "Ticker": "A33", "Sector": "Industrials"},
+    "TA": {"Rate": 0.00, "PB": 0.00, "Ticker": "PA3", "Sector": "Industrials"},
+    "Tai Sin Electric": {"Rate": 0.00, "PB": 0.00, "Ticker": "500", "Sector": "Industrials"},
+    "Tiong Seng": {"Rate": 0.00, "PB": 0.00, "Ticker": "BFI", "Sector": "Industrials"},
+    "Tiong Woon": {"Rate": 0.00, "PB": 0.00, "Ticker": "BQM", "Sector": "Industrials"},
+    "Tritech": {"Rate": 0.00, "PB": 0.00, "Ticker": "5G9", "Sector": "Industrials"},
+    "Triyards": {"Rate": 0.00, "PB": 0.00, "Ticker": "RC5", "Sector": "Industrials"},
+    "Tye Soon": {"Rate": 0.00, "PB": 0.00, "Ticker": "BFU", "Sector": "Industrials"},
+    "USP Group": {"Rate": 0.00, "PB": 0.00, "Ticker": "BRS", "Sector": "Industrials"},
+    "Uni-Asia Grp": {"Rate": 0.00, "PB": 0.00, "Ticker": "CHJ", "Sector": "Industrials"},
+    "UnionSteel": {"Rate": 0.00, "PB": 0.00, "Ticker": "ZB9", "Sector": "Industrials"},
+    "VCPlus": {"Rate": 0.00, "PB": 0.00, "Ticker": "43E", "Sector": "Industrials"},
+    "Vallianz": {"Rate": 0.00, "PB": 0.00, "Ticker": "WPC", "Sector": "Industrials"},
+    "Versalink": {"Rate": 0.00, "PB": 0.00, "Ticker": "40N", "Sector": "Industrials"},
+    "Vibrant Group": {"Rate": 0.00, "PB": 0.00, "Ticker": "BIP", "Sector": "Industrials"},
+    "VibroPower": {"Rate": 0.00, "PB": 0.00, "Ticker": "BJD", "Sector": "Industrials"},
+    "Wee Hur": {"Rate": 0.00, "PB": 0.00, "Ticker": "E3B", "Sector": "Industrials"},
+    "Wong Fong Ind": {"Rate": 0.00, "PB": 0.00, "Ticker": "1A1", "Sector": "Industrials"},
+    "World Precision": {"Rate": 0.00, "PB": 0.00, "Ticker": "B49", "Sector": "Industrials"},
+    "XMH": {"Rate": 0.00, "PB": 0.00, "Ticker": "BQF", "Sector": "Industrials"},
+    "YZJ Shipbldg CNY": {"Rate": 0.00, "PB": 0.00, "Ticker": "SO7", "Sector": "Industrials"},
+    "YZJ Shipbldg SGD": {"Rate": 0.00, "PB": 0.00, "Ticker": "BS6", "Sector": "Industrials"},
+    "Yoma Strategic": {"Rate": 0.00, "PB": 0.00, "Ticker": "Z59", "Sector": "Industrials"},
+    "Yongmao": {"Rate": 0.00, "PB": 0.00, "Ticker": "BKX", "Sector": "Industrials"},
+    "ZICO Hldgs": {"Rate": 0.00, "PB": 0.00, "Ticker": "40W", "Sector": "Industrials"},
+    "AIMS APAC Reit": {"Rate": 0.00, "PB": 0.00, "Ticker": "O5RU", "Sector": "Real Estate"},
+    "APAC Realty": {"Rate": 0.00, "PB": 0.00, "Ticker": "CLN", "Sector": "Real Estate"},
+    "Acro HTrust USD": {"Rate": 0.00, "PB": 0.00, "Ticker": "XZL", "Sector": "Real Estate"},
+    "Alpha Integrated REIT": {"Rate": 0.00, "PB": 0.00, "Ticker": "M1GU", "Sector": "Real Estate"},
+    "Alset": {"Rate": 0.00, "PB": 0.00, "Ticker": "40V", "Sector": "Real Estate"},
+    "Amcorp Global": {"Rate": 0.00, "PB": 0.00, "Ticker": "S9B", "Sector": "Real Estate"},
+    "Amplefield Ltd": {"Rate": 0.00, "PB": 0.00, "Ticker": "AOF", "Sector": "Real Estate"},
+    "Aspen": {"Rate": 0.00, "PB": 0.00, "Ticker": "1F3", "Sector": "Real Estate"},
+    "Astaka": {"Rate": 0.00, "PB": 0.00, "Ticker": "42S", "Sector": "Real Estate"},
+    "BHG Retail Reit": {"Rate": 0.00, "PB": 0.00, "Ticker": "BMGU", "Sector": "Real Estate"},
+    "Bukit Sembawang": {"Rate": 0.00, "PB": 0.00, "Ticker": "B61", "Sector": "Real Estate"},
+    "Bund Center": {"Rate": 0.00, "PB": 0.00, "Ticker": "BTE", "Sector": "Real Estate"},
+    "CDL HTrust": {"Rate": 0.08, "PB": 0.62, "Ticker": "J85", "Sector": "Real Estate"},
+    "CapLand Ascendas REIT": {"Rate": 0.00, "PB": 0.00, "Ticker": "A17U", "Sector": "Real Estate"},
+    "CapLand Ascott T": {"Rate": 0.00, "PB": 0.00, "Ticker": "HMN", "Sector": "Real Estate"},
+    "CapLand China T": {"Rate": 0.07, "PB": 0.62, "Ticker": "AU8U", "Sector": "Real Estate"},
+    "CapLand India T": {"Rate": 0.08, "PB": 1.12, "Ticker": "CY6U", "Sector": "Real Estate"},
+    "CapLand IntCom T": {"Rate": 0.00, "PB": 0.00, "Ticker": "C38U", "Sector": "Real Estate"},
+    "CapitaLandInvest": {"Rate": 0.00, "PB": 0.00, "Ticker": "9CI", "Sector": "Real Estate"},
+    "Capital World": {"Rate": 0.00, "PB": 0.00, "Ticker": "1D5", "Sector": "Real Estate"},
+    "Cent Accom REIT": {"Rate": 0.00, "PB": 0.00, "Ticker": "8C8U", "Sector": "Real Estate"},
+    "China Yuanbang": {"Rate": 0.00, "PB": 0.00, "Ticker": "BCD", "Sector": "Real Estate"},
+    "Chuan Hup": {"Rate": 0.00, "PB": 0.00, "Ticker": "C33", "Sector": "Real Estate"},
+    "CityDev": {"Rate": 0.12, "PB": 0.38, "Ticker": "C09", "Sector": "Real Estate"},
+    "Coliwoo Hldgs": {"Rate": 0.00, "PB": 0.00, "Ticker": "W8W", "Sector": "Real Estate"},
+    "Daiwa Hse Log Tr": {"Rate": 0.00, "PB": 0.00, "Ticker": "DHLU", "Sector": "Real Estate"},
+    "Dasin Retail Tr": {"Rate": 0.00, "PB": 0.00, "Ticker": "CEDU", "Sector": "Real Estate"},
+    "Debao Property": {"Rate": 0.00, "PB": 0.00, "Ticker": "BTF", "Sector": "Real Estate"},
+    "DigiCore Reit USD": {"Rate": 0.00, "PB": 0.00, "Ticker": "DCRU", "Sector": "Real Estate"},
+    "EC World Reit": {"Rate": 0.00, "PB": 0.00, "Ticker": "BWCU", "Sector": "Real Estate"},
+    "ESR REIT": {"Rate": 0.00, "PB": 0.00, "Ticker": "9A4U", "Sector": "Real Estate"},
+    "ETC Singapore": {"Rate": 0.00, "PB": 0.00, "Ticker": "1C0", "Sector": "Real Estate"},
+    "Eagle HTrust USD": {"Rate": 0.00, "PB": 0.00, "Ticker": "LIW", "Sector": "Real Estate"},
+    "EliteUKREIT GBP": {"Rate": 0.00, "PB": 0.00, "Ticker": "MXNU", "Sector": "Real Estate"},
+    "Far East HTrust": {"Rate": 0.00, "PB": 0.00, "Ticker": "Q5T", "Sector": "Real Estate"},
+    "Far East Orchard": {"Rate": 0.00, "PB": 0.00, "Ticker": "O10", "Sector": "Real Estate"},
+    "Figtree": {"Rate": 0.00, "PB": 0.00, "Ticker": "5F4", "Sector": "Real Estate"},
+    "First Reit": {"Rate": 0.02, "PB": 0.55, "Ticker": "AW9U", "Sector": "Real Estate"},
+    "First Sponsor": {"Rate": 0.00, "PB": 0.00, "Ticker": "ADN", "Sector": "Real Estate"},
+    "Frasers Cpt Tr": {"Rate": 0.00, "PB": 0.00, "Ticker": "J69U", "Sector": "Real Estate"},
+    "Frasers L&C Tr": {"Rate": 0.00, "PB": 0.00, "Ticker": "BUOU", "Sector": "Real Estate"},
+    "Frasers Property": {"Rate": 0.00, "PB": 0.00, "Ticker": "TQ5", "Sector": "Real Estate"},
+    "GRC": {"Rate": 0.00, "PB": 0.00, "Ticker": "S3N", "Sector": "Real Estate"},
+    "Goodland": {"Rate": 0.00, "PB": 0.00, "Ticker": "5PC", "Sector": "Real Estate"},
+    "GuocoLand": {"Rate": 0.00, "PB": 0.00, "Ticker": "F17", "Sector": "Real Estate"},
+    "Hatten Land": {"Rate": 0.00, "PB": 0.00, "Ticker": "PH0", "Sector": "Real Estate"},
+    "HealthBank": {"Rate": 0.00, "PB": 0.00, "Ticker": "40B", "Sector": "Real Estate"},
+    "Ho Bee Land": {"Rate": 0.00, "PB": 0.00, "Ticker": "H13", "Sector": "Real Estate"},
+    "Hong Fok": {"Rate": 0.00, "PB": 0.00, "Ticker": "H30", "Sector": "Real Estate"},
+    "Hong Lai Huat": {"Rate": 0.00, "PB": 0.00, "Ticker": "CTO", "Sector": "Real Estate"},
+    "HongkongLand USD": {"Rate": 0.00, "PB": 0.00, "Ticker": "H78", "Sector": "Real Estate"},
+    "IPC Corp": {"Rate": 0.00, "PB": 0.00, "Ticker": "AZA", "Sector": "Real Estate"},
+    "IREIT Global EUR": {"Rate": 0.00, "PB": 0.00, "Ticker": "8U7U", "Sector": "Real Estate"},
+    "IREIT Global SGD": {"Rate": 0.00, "PB": 0.00, "Ticker": "UD1U", "Sector": "Real Estate"},
+    "KOP": {"Rate": 0.00, "PB": 0.00, "Ticker": "5I1", "Sector": "Real Estate"},
+    "KOREReitUSD": {"Rate": 0.00, "PB": 0.00, "Ticker": "CMOU", "Sector": "Real Estate"},
+    "Keppel DC Reit": {"Rate": 0.47, "PB": 0.00, "Ticker": "AJBU", "Sector": "Real Estate"},
+    "Keppel Reit": {"Rate": 0.06, "PB": 0.62, "Ticker": "K71U", "Sector": "Real Estate"},
+    "LHN": {"Rate": 0.00, "PB": 0.00, "Ticker": "41O", "Sector": "Real Estate"},
+    "Landmark REIT": {"Rate": 0.00, "PB": 0.00, "Ticker": "D5IU", "Sector": "Real Estate"},
+    "Lendlease Reit": {"Rate": 0.00, "PB": 0.00, "Ticker": "JYEU", "Sector": "Real Estate"},
+    "MYP": {"Rate": 0.00, "PB": 0.00, "Ticker": "F86", "Sector": "Real Estate"},
+    "ManulifeReit USD": {"Rate": 0.00, "PB": 0.00, "Ticker": "BTOU", "Sector": "Real Estate"},
+    "Mapletree Ind Tr": {"Rate": 0.00, "PB": 0.00, "Ticker": "ME8U", "Sector": "Real Estate"},
+    "Mapletree Log Tr": {"Rate": 0.08, "PB": 0.95, "Ticker": "M44U", "Sector": "Real Estate"},
+    "Mapletree PanAsia Com Tr": {"Rate": 0.00, "PB": 0.00, "Ticker": "N2IU", "Sector": "Real Estate"},
+    "Mercurius": {"Rate": 0.00, "PB": 0.00, "Ticker": "5RF", "Sector": "Real Estate"},
+    "NTT DC REIT USD": {"Rate": 0.00, "PB": 0.00, "Ticker": "NTDU", "Sector": "Real Estate"},
+    "OUE": {"Rate": 0.00, "PB": 0.00, "Ticker": "LJ3", "Sector": "Real Estate"},
+    "OUEREIT": {"Rate": 0.00, "PB": 0.00, "Ticker": "TS0U", "Sector": "Real Estate"},
+    "Olive Tree": {"Rate": 0.00, "PB": 0.00, "Ticker": "1H2", "Sector": "Real Estate"},
+    "OneApex": {"Rate": 0.00, "PB": 0.00, "Ticker": "5SY", "Sector": "Real Estate"},
+    "Oxley": {"Rate": 0.00, "PB": 0.00, "Ticker": "5UX", "Sector": "Real Estate"},
+    "Pan Hong": {"Rate": 0.00, "PB": 0.00, "Ticker": "P36", "Sector": "Real Estate"},
+    "ParkwayLife Reit": {"Rate": 0.00, "PB": 0.00, "Ticker": "C2PU", "Sector": "Real Estate"},
+    "Pollux Prop": {"Rate": 0.00, "PB": 0.00, "Ticker": "5AE", "Sector": "Real Estate"},
+    "Prime US ReitUSD": {"Rate": 0.00, "PB": 0.00, "Ticker": "OXMU", "Sector": "Real Estate"},
+    "PropNex": {"Rate": 0.00, "PB": 0.00, "Ticker": "OYY", "Sector": "Real Estate"},
+    "Regal Intl": {"Rate": 0.00, "PB": 0.00, "Ticker": "UV1", "Sector": "Real Estate"},
+    "Sasseur Reit": {"Rate": 0.00, "PB": 0.00, "Ticker": "CRPU", "Sector": "Real Estate"},
+    "SingHoldings": {"Rate": 0.00, "PB": 0.00, "Ticker": "5IC", "Sector": "Real Estate"},
+    "SingaporeLandGrp": {"Rate": 0.00, "PB": 0.00, "Ticker": "U06", "Sector": "Real Estate"},
+    "Soon Hock": {"Rate": 0.00, "PB": 0.00, "Ticker": "SHE", "Sector": "Real Estate"},
+    "StarhillGbl Reit": {"Rate": 0.04, "PB": 0.72, "Ticker": "P40U", "Sector": "Real Estate"},
+    "Stoneweg EUTrust EUR": {"Rate": 0.00, "PB": 0.00, "Ticker": "SET", "Sector": "Real Estate"},
+    "Stoneweg EUTrust SGD": {"Rate": 0.00, "PB": 0.00, "Ticker": "SEB", "Sector": "Real Estate"},
+    "Sunrise Shares": {"Rate": 0.00, "PB": 0.00, "Ticker": "581", "Sector": "Real Estate"},
+    "Suntec Reit": {"Rate": 0.08, "PB": 0.62, "Ticker": "T82U", "Sector": "Real Estate"},
+    "TAP": {"Rate": 0.00, "PB": 0.00, "Ticker": "TAP", "Sector": "Real Estate"},
+    "Tosei": {"Rate": 0.00, "PB": 0.00, "Ticker": "S2D", "Sector": "Real Estate"},
+    "Tuan Sing": {"Rate": 0.00, "PB": 0.00, "Ticker": "T24", "Sector": "Real Estate"},
+    "UIBREIT": {"Rate": 0.00, "PB": 0.00, "Ticker": "UIBU", "Sector": "Real Estate"},
+    "UOA": {"Rate": 0.00, "PB": 0.00, "Ticker": "EH5", "Sector": "Real Estate"},
+    "UOL": {"Rate": 0.02, "PB": 0.45, "Ticker": "U14", "Sector": "Real Estate"},
+    "UtdHampshReitUSD": {"Rate": 0.00, "PB": 0.00, "Ticker": "ODBU", "Sector": "Real Estate"},
+    "Wing Tai": {"Rate": 0.00, "PB": 0.00, "Ticker": "W05", "Sector": "Real Estate"},
+    "Yamada Green Res": {"Rate": 0.00, "PB": 0.00, "Ticker": "BJV", "Sector": "Real Estate"},
+    "Yanlord Land": {"Rate": 0.00, "PB": 0.00, "Ticker": "Z25", "Sector": "Real Estate"},
+    "Ying Li Intl": {"Rate": 0.00, "PB": 0.00, "Ticker": "5DM", "Sector": "Real Estate"},
+    "17LIVE GROUP": {"Rate": 0.00, "PB": 0.00, "Ticker": "LVR", "Sector": "Technology"},
+    "8Telecom": {"Rate": 0.00, "PB": 0.00, "Ticker": "AZG", "Sector": "Technology"},
+    "9R": {"Rate": 0.00, "PB": 0.00, "Ticker": "1Y1", "Sector": "Technology"},
+    "AEM SGD": {"Rate": 0.00, "PB": 0.00, "Ticker": "AWX", "Sector": "Technology"},
+    "AEM USD": {"Rate": 0.00, "PB": 0.00, "Ticker": "XWA", "Sector": "Technology"},
+    "ASTI": {"Rate": 0.00, "PB": 0.00, "Ticker": "575", "Sector": "Technology"},
+    "Addvalue Tech": {"Rate": 0.00, "PB": 0.00, "Ticker": "A31", "Sector": "Technology"},
+    "AdvancedSystems": {"Rate": 0.00, "PB": 0.00, "Ticker": "WJ9", "Sector": "Technology"},
+    "AlphaDX": {"Rate": 0.00, "PB": 0.00, "Ticker": "VVL", "Sector": "Technology"},
+    "Assurance HC": {"Rate": 0.00, "PB": 0.00, "Ticker": "RCU", "Sector": "Technology"},
+    "AvePoint": {"Rate": 0.00, "PB": 0.00, "Ticker": "AVP", "Sector": "Technology"},
+    "Avi-Tech Hldg": {"Rate": 0.00, "PB": 0.00, "Ticker": "1R6", "Sector": "Technology"},
+    "Azeus": {"Rate": 0.00, "PB": 0.00, "Ticker": "BBW", "Sector": "Technology"},
+    "Aztech Gbl": {"Rate": 0.00, "PB": 0.00, "Ticker": "8AZ", "Sector": "Technology"},
+    "Broadway Ind": {"Rate": 0.00, "PB": 0.00, "Ticker": "B69", "Sector": "Technology"},
+    "CDW": {"Rate": 0.00, "PB": 0.00, "Ticker": "BXE", "Sector": "Technology"},
+    "CSE Global": {"Rate": 0.00, "PB": 0.00, "Ticker": "544", "Sector": "Technology"},
+    "Choo Chiang": {"Rate": 0.00, "PB": 0.00, "Ticker": "42E", "Sector": "Technology"},
+    "Comba": {"Rate": 0.00, "PB": 0.00, "Ticker": "STC", "Sector": "Technology"},
+    "Creative": {"Rate": 0.00, "PB": 0.00, "Ticker": "C76", "Sector": "Technology"},
+    "DISA": {"Rate": 0.00, "PB": 0.00, "Ticker": "532", "Sector": "Technology"},
+    "Ellipsiz": {"Rate": 0.00, "PB": 0.00, "Ticker": "BIX", "Sector": "Technology"},
+    "Frencken": {"Rate": 0.00, "PB": 0.00, "Ticker": "E28", "Sector": "Technology"},
+    "G Invacom": {"Rate": 0.00, "PB": 0.00, "Ticker": "QS9", "Sector": "Technology"},
+    "GRP": {"Rate": 0.00, "PB": 0.00, "Ticker": "BLU", "Sector": "Technology"},
+    "GSS Energy": {"Rate": 0.00, "PB": 0.00, "Ticker": "41F", "Sector": "Technology"},
+    "Global Testing": {"Rate": 0.00, "PB": 0.00, "Ticker": "AYN", "Sector": "Technology"},
+    "IFAST": {"Rate": 0.00, "PB": 0.00, "Ticker": "AIY", "Sector": "Technology"},
+    "Info-Tech": {"Rate": 0.00, "PB": 0.00, "Ticker": "ITS", "Sector": "Technology"},
+    "Jadason": {"Rate": 0.00, "PB": 0.00, "Ticker": "J03", "Sector": "Technology"},
+    "Jason Marine": {"Rate": 0.00, "PB": 0.00, "Ticker": "5PF", "Sector": "Technology"},
+    "Jubilee": {"Rate": 0.00, "PB": 0.00, "Ticker": "NHD", "Sector": "Technology"},
+    "Karin Tech": {"Rate": 0.00, "PB": 0.00, "Ticker": "K29", "Sector": "Technology"},
+    "MDR Limited": {"Rate": 0.00, "PB": 0.00, "Ticker": "Y3D", "Sector": "Technology"},
+    "METAOPTICS LTD": {"Rate": 0.00, "PB": 0.00, "Ticker": "9MT", "Sector": "Technology"},
+    "MFG Integration": {"Rate": 0.00, "PB": 0.00, "Ticker": "M11", "Sector": "Technology"},
+    "Maruwa Yen1k": {"Rate": 0.00, "PB": 0.00, "Ticker": "M12", "Sector": "Technology"},
+    "Micro-Mechanics": {"Rate": 0.00, "PB": 0.00, "Ticker": "5DD", "Sector": "Technology"},
+    "Multi-Chem": {"Rate": 0.00, "PB": 0.00, "Ticker": "AWZ", "Sector": "Technology"},
+    "Nanofilm": {"Rate": 0.00, "PB": 0.00, "Ticker": "MZH", "Sector": "Technology"},
+    "NeraTel": {"Rate": 0.00, "PB": 0.00, "Ticker": "N01", "Sector": "Technology"},
+    "OIO": {"Rate": 0.00, "PB": 0.00, "Ticker": "KUX", "Sector": "Technology"},
+    "OxPay Financial": {"Rate": 0.00, "PB": 0.00, "Ticker": "TVV", "Sector": "Technology"},
+    "PC Partner": {"Rate": 0.00, "PB": 0.00, "Ticker": "PCT", "Sector": "Technology"},
+    "PNE Industries": {"Rate": 0.00, "PB": 0.00, "Ticker": "BDA", "Sector": "Technology"},
+    "Powermatic Data": {"Rate": 0.00, "PB": 0.00, "Ticker": "BCY", "Sector": "Technology"},
+    "Santak": {"Rate": 0.00, "PB": 0.00, "Ticker": "580", "Sector": "Technology"},
+    "Sarine Tech": {"Rate": 0.00, "PB": 0.00, "Ticker": "U77", "Sector": "Technology"},
+    "Serial Achieva": {"Rate": 0.00, "PB": 0.00, "Ticker": "XHV", "Sector": "Technology"},
+    "Serial System": {"Rate": 0.00, "PB": 0.00, "Ticker": "S69", "Sector": "Technology"},
+    "SinoCloud Grp": {"Rate": 0.00, "PB": 0.00, "Ticker": "LYY", "Sector": "Technology"},
+    "Sunright": {"Rate": 0.00, "PB": 0.00, "Ticker": "S71", "Sector": "Technology"},
+    "Toku Ltd": {"Rate": 0.00, "PB": 0.00, "Ticker": "TKU", "Sector": "Technology"},
+    "Totm Tech": {"Rate": 0.00, "PB": 0.00, "Ticker": "42F", "Sector": "Technology"},
+    "Trek 2000 Intl": {"Rate": 0.00, "PB": 0.00, "Ticker": "5AB", "Sector": "Technology"},
+    "TrickleStar": {"Rate": 0.00, "PB": 0.00, "Ticker": "CYW", "Sector": "Technology"},
+    "UMS": {"Rate": 0.00, "PB": 0.00, "Ticker": "558", "Sector": "Technology"},
+    "Valuetronics": {"Rate": 0.00, "PB": 0.00, "Ticker": "BN2", "Sector": "Technology"},
+    "Venture": {"Rate": 0.75, "PB": 1.22, "Ticker": "V03", "Sector": "Technology"},
+    "Willas-Array": {"Rate": 0.00, "PB": 0.00, "Ticker": "BDR", "Sector": "Technology"},
+    "Yunnan Energy": {"Rate": 0.00, "PB": 0.00, "Ticker": "T43", "Sector": "Technology"},
+    "iWOW Tech": {"Rate": 0.00, "PB": 0.00, "Ticker": "NXR", "Sector": "Technology"},
+    "Asiatic": {"Rate": 0.00, "PB": 0.00, "Ticker": "5CR", "Sector": "Utilities"},
+    "CONCORD NE": {"Rate": 0.00, "PB": 0.00, "Ticker": "SEG", "Sector": "Utilities"},
+    "China Everbright": {"Rate": 0.00, "PB": 0.00, "Ticker": "U9E", "Sector": "Utilities"},
+    "China Intl": {"Rate": 0.00, "PB": 0.00, "Ticker": "BEH", "Sector": "Utilities"},
+    "Gallant Venture": {"Rate": 0.00, "PB": 0.00, "Ticker": "5IG", "Sector": "Utilities"},
+    "Hyflux": {"Rate": 0.00, "PB": 0.00, "Ticker": "600", "Sector": "Utilities"},
+    "Khen Energy": {"Rate": 0.00, "PB": 0.00, "Ticker": "YSV", "Sector": "Utilities"},
+    "Memiontec Hldgs": {"Rate": 0.00, "PB": 0.00, "Ticker": "TWL", "Sector": "Utilities"},
+    "Metis Energy": {"Rate": 0.00, "PB": 0.00, "Ticker": "L02", "Sector": "Utilities"},
+    "Ouhua Energy": {"Rate": 0.00, "PB": 0.00, "Ticker": "AJ2", "Sector": "Utilities"},
+    "Renaissance United": {"Rate": 0.00, "PB": 0.00, "Ticker": "I11", "Sector": "Utilities"},
+    "SIIC Environment": {"Rate": 0.00, "PB": 0.00, "Ticker": "BHK", "Sector": "Utilities"},
+    "Sembcorp Ind": {"Rate": 0.15, "PB": 1.42, "Ticker": "U96", "Sector": "Utilities"},
+    "Sunpower": {"Rate": 0.00, "PB": 0.00, "Ticker": "5GD", "Sector": "Utilities"},
+    "Zheneng Jinjiang": {"Rate": 0.00, "PB": 0.00, "Ticker": "BWM", "Sector": "Utilities"},
+    "ASTREAVIB310318": {"Rate": 0.03, "PB": 1.00, "Ticker": None, "Sector": "Fixed Income"},
+    "SBDEC17 GX17120W": {"Rate": 0.03, "PB": 1.00, "Ticker": None, "Sector": "Fixed Income"}
+
+}
 
 # --- 4. HELPER FUNCTIONS ---
 def clean_val(v):
@@ -160,13 +767,21 @@ def resolve_intel(raw_name):
     is_known=False means the stock was not found in MASTER_INTEL or ALIAS_MAP.
     """
     name_up = str(raw_name).upper()
-    if name_up in _MASTER_INTEL_UP:
-        return _MASTER_INTEL_UP[name_up], name_up, True
-    for clean_name, aliases in _ALIAS_MAP_UP.items():
+    if name_up in MASTER_INTEL:
+        return MASTER_INTEL[name_up], name_up, True
+    ALIAS_MAP = {
+        "OCBC": ["OVERSEA-CHINESE", "OVERSEA CHINESE", "OCBC"],
+        "UOB": ["UNITED OVERSEAS", "UOB"],
+        "DBS": ["DBS GROUP", "DBS"],
+        "SINGTEL": ["SINGAPORE TELECOM", "SINGTEL"],
+        "MAPLETREE LOG TR": ["MAPLETREE LOGISTICS", "MAPLETREE LOG"],
+        "ST ENGINEERING": ["SINGAPORE TECHNOLOGIES", "ST ENGG"],
+        "CITYDEV": ["CITY DEVELOPMENTS"],
+        "COMFORTDELGRO": ["COMFORT DELGRO"]
+    }
+    for clean_name, aliases in ALIAS_MAP.items():
         if any(alias in name_up for alias in aliases):
-            intel = _MASTER_INTEL_UP.get(clean_name)
-            if intel:
-                return intel, clean_name, True
+            return MASTER_INTEL[clean_name], clean_name, True
     return {"Rate": 0.0, "PB": 1.0, "Ticker": None, "Sector": guess_sector(name_up)}, name_up, False
 
 def extract_pdf(file):
@@ -310,105 +925,35 @@ def project_portfolio_growth(current_aum, annual_savings, total_return, dividend
             aum = max(0.0, aum * (1 + growth_rate) + annual_savings)
     return rows
 
-# --- FinBERT SENTIMENT HELPERS ---
-
-_FINBERT_URL = "https://api-inference.huggingface.co/models/ProsusAI/finbert"
-_SENTIMENT_COLOUR = {"positive": "#27AE60", "neutral": "#7F8C8D", "negative": "#E74C3C"}
-_SENTIMENT_LABEL  = {"positive": "Bullish", "neutral": "Neutral", "negative": "Bearish"}
-_SENTIMENT_ICON   = {"positive": "📈", "neutral": "➡️", "negative": "📉"}
-
-def _call_finbert(texts: list[str], hf_token: str) -> list[dict] | None:
-    """POST a batch of texts to FinBERT; return list of {label, score} dicts or None on error."""
-    if not hf_token or not texts:
-        return None
-    try:
-        resp = requests.post(
-            _FINBERT_URL,
-            headers={"Authorization": f"Bearer {hf_token}"},
-            json={"inputs": texts},
-            timeout=30,
-        )
-        if resp.status_code == 503:
-            # Model is loading — surface a friendly message upstream
-            return "loading"
-        if resp.status_code != 200:
-            return None
-        raw = resp.json()
-        # raw is list[list[{label,score}]] — pick the top label per text
-        results = []
-        for item in raw:
-            if isinstance(item, list):
-                top = max(item, key=lambda x: x["score"])
-                results.append({"label": top["label"].lower(), "score": top["score"]})
-            else:
-                results.append({"label": "neutral", "score": 1.0})
-        return results
-    except Exception:
-        return None
-
-def _fetch_news_headlines(ticker_si: str, max_headlines: int = 5) -> list[str]:
-    """Return up to max_headlines news titles for a .SI ticker via yfinance."""
-    try:
-        news = yf.Ticker(ticker_si).news or []
-        return [item.get("title", "") for item in news[:max_headlines] if item.get("title")]
-    except Exception:
-        return []
-
-def _aggregate_sentiment(scores: list[dict]) -> dict:
-    """Collapse a list of per-headline {label,score} into a single summary dict."""
-    if not scores:
-        return {"label": "neutral", "net": 0.0, "pos": 0, "neu": 0, "neg": 0, "count": 0}
-    pos = sum(s["score"] for s in scores if s["label"] == "positive")
-    neg = sum(s["score"] for s in scores if s["label"] == "negative")
-    neu = sum(s["score"] for s in scores if s["label"] == "neutral")
-    n   = len(scores)
-    net = (pos - neg) / n
-    if net > 0.15:
-        label = "positive"
-    elif net < -0.15:
-        label = "negative"
-    else:
-        label = "neutral"
-    return {
-        "label": label,
-        "net":   round(net, 3),
-        "pos":   sum(1 for s in scores if s["label"] == "positive"),
-        "neu":   sum(1 for s in scores if s["label"] == "neutral"),
-        "neg":   sum(1 for s in scores if s["label"] == "negative"),
-        "count": n,
-    }
-
 @st.cache_data(ttl=3600)
 def fetch_prices_batch(tickers_str, period="2y"):
     """Batch-download closing prices; returns DataFrame with tickers as columns."""
-    raw_tickers = [t.strip() for t in tickers_str.split(",") if t.strip()]
-    si_tickers = [_si(t) for t in raw_tickers]
-    si_to_raw = {s: r for s, r in zip(si_tickers, raw_tickers)}
+    tickers = [t.strip() for t in tickers_str.split(",") if t.strip()]
     result = {}
-    if not si_tickers:
+    if not tickers:
         return pd.DataFrame()
     try:
-        raw = yf.download(si_tickers, period=period, auto_adjust=True, progress=False)
+        raw = yf.download(tickers, period=period, auto_adjust=True, progress=False)
         if isinstance(raw.columns, pd.MultiIndex):
             close_df = raw['Close']
-            for si, bare in si_to_raw.items():
-                if si in close_df.columns:
-                    s = close_df[si].dropna()
+            for ticker in tickers:
+                if ticker in close_df.columns:
+                    s = close_df[ticker].dropna()
                     if not s.empty:
-                        result[bare] = s
+                        result[ticker] = s
         else:
             c = raw['Close'] if 'Close' in raw.columns else raw.iloc[:, 0]
             if isinstance(c, pd.DataFrame): c = c.iloc[:, 0]
             if not c.dropna().empty:
-                result[raw_tickers[0]] = c
+                result[tickers[0]] = c
     except Exception:
         pass
-    for si, bare in [(s, r) for s, r in si_to_raw.items() if r not in result]:
+    for ticker in [t for t in tickers if t not in result]:
         try:
-            h = yf.download(si, period=period, auto_adjust=True, progress=False)
+            h = yf.download(ticker, period=period, auto_adjust=True, progress=False)
             c = h['Close'].iloc[:, 0] if isinstance(h['Close'], pd.DataFrame) else h['Close']
             if not c.dropna().empty:
-                result[bare] = c
+                result[ticker] = c
         except Exception:
             continue
     return pd.DataFrame(result) if result else pd.DataFrame()
@@ -461,7 +1006,7 @@ def get_dividend_data(tickers_str, names_str):
     result = {}
     for ticker, name in zip(tickers, names):
         try:
-            divs = yf.Ticker(_si(ticker)).dividends
+            divs = yf.Ticker(ticker).dividends
             if not divs.empty:
                 result[name] = divs
         except Exception:
@@ -515,7 +1060,7 @@ def scan_portfolio_returns(_data_hash, tickers_and_names):
     m = {}
     for ticker, name in tickers_and_names:
         try:
-            h = yf.download(_si(ticker), period="5y", auto_adjust=True, progress=False)
+            h = yf.download(ticker, period="5y", auto_adjust=True, progress=False)
             if not h.empty:
                 c = h['Close'].iloc[:, 0] if isinstance(h['Close'], pd.DataFrame) else h['Close']
                 m[name] = float(c.iloc[-1]) / float(c.iloc[0]) - 1.0
@@ -526,7 +1071,7 @@ def scan_portfolio_returns(_data_hash, tickers_and_names):
 @st.cache_data(ttl=3600)
 def load_benchmark(ticker, years):
     start = datetime.now() - timedelta(days=years * 365)
-    h_a = yf.download(_si(ticker), start=start, end=datetime.now(), auto_adjust=True, progress=False)
+    h_a = yf.download(ticker, start=start, end=datetime.now(), auto_adjust=True, progress=False)
     h_s = yf.download("^STI", start=start, end=datetime.now(), auto_adjust=True, progress=False)
     return h_a, h_s
 
@@ -541,15 +1086,10 @@ CRISIS_SCENARIOS = {
         "desc": "Global Financial Crisis — peak to trough (~17 months)",
         "sti_drop": -0.617,
     },
-    "Dotcom Crash 2000–02": {
-        "start": "2000-03-10", "end": "2002-10-09",
-        "desc": "Dot-com bubble burst — tech collapse and prolonged bear market",
-        "sti_drop": -0.542,
-    },
-    "European PIGS Crisis 2010–12": {
-        "start": "2010-04-23", "end": "2012-07-26",
-        "desc": "Eurozone sovereign debt crisis — Greece, Portugal, Ireland, Spain, Italy",
-        "sti_drop": -0.197,
+    "2022 Rate Hike Cycle": {
+        "start": "2022-01-03", "end": "2022-10-31",
+        "desc": "Aggressive Fed rate hike cycle — REIT and bond selloff",
+        "sti_drop": -0.118,
     },
     "Asia Financial Crisis 1997–98": {
         "start": "1997-07-01", "end": "1998-08-31",
@@ -561,37 +1101,35 @@ CRISIS_SCENARIOS = {
 @st.cache_data(ttl=86400)
 def fetch_crisis_returns(tickers_str, start_date, end_date):
     """Returns {ticker: pct_return} over the given crisis window."""
-    raw_tickers = [t.strip() for t in tickers_str.split(",") if t.strip()]
-    si_tickers = [_si(t) for t in raw_tickers]
-    si_to_raw = {s: r for s, r in zip(si_tickers, raw_tickers)}
+    tickers = [t.strip() for t in tickers_str.split(",") if t.strip()]
     result = {}
-    if not si_tickers:
+    if not tickers:
         return result
     try:
-        raw = yf.download(si_tickers, start=start_date, end=end_date, auto_adjust=True, progress=False)
+        raw = yf.download(tickers, start=start_date, end=end_date, auto_adjust=True, progress=False)
         if isinstance(raw.columns, pd.MultiIndex):
             close_df = raw['Close']
-            for si, bare in si_to_raw.items():
-                if si in close_df.columns:
-                    s = close_df[si].dropna()
+            for ticker in tickers:
+                if ticker in close_df.columns:
+                    s = close_df[ticker].dropna()
                     if len(s) >= 2:
-                        result[bare] = float(s.iloc[-1]) / float(s.iloc[0]) - 1.0
+                        result[ticker] = float(s.iloc[-1]) / float(s.iloc[0]) - 1.0
         else:
             c = raw['Close'] if 'Close' in raw.columns else raw.iloc[:, 0]
             if isinstance(c, pd.DataFrame):
                 c = c.iloc[:, 0]
             s = c.dropna()
             if len(s) >= 2:
-                result[raw_tickers[0]] = float(s.iloc[-1]) / float(s.iloc[0]) - 1.0
+                result[tickers[0]] = float(s.iloc[-1]) / float(s.iloc[0]) - 1.0
     except Exception:
         pass
-    for si, bare in [(s, r) for s, r in si_to_raw.items() if r not in result]:
+    for ticker in [t for t in tickers if t not in result]:
         try:
-            h = yf.download(si, start=start_date, end=end_date, auto_adjust=True, progress=False)
+            h = yf.download(ticker, start=start_date, end=end_date, auto_adjust=True, progress=False)
             c = h['Close'].iloc[:, 0] if isinstance(h['Close'], pd.DataFrame) else h['Close']
             s = c.dropna()
             if len(s) >= 2:
-                result[bare] = float(s.iloc[-1]) / float(s.iloc[0]) - 1.0
+                result[ticker] = float(s.iloc[-1]) / float(s.iloc[0]) - 1.0
         except Exception:
             continue
     return result
@@ -602,7 +1140,7 @@ def fetch_annual_dps(ticker):
     if not ticker or not ticker.strip():
         return 0.0
     try:
-        divs = yf.Ticker(_si(ticker.strip())).dividends
+        divs = yf.Ticker(ticker.strip()).dividends
         if divs.empty:
             return 0.0
         if hasattr(divs.index, 'tz') and divs.index.tz is not None:
@@ -626,23 +1164,19 @@ st.sidebar.markdown("""
 st.sidebar.markdown("**Upload Portfolio Statement**")
 uploaded_file = st.sidebar.file_uploader("PDF only", type="pdf", label_visibility="collapsed")
 st.sidebar.markdown("---")
-with st.sidebar.expander("🤖 AI Sentiment (FinBERT)", expanded=False):
-    st.markdown(
-        "<small>Enter your free <a href='https://huggingface.co/settings/tokens' target='_blank'>"
-        "HuggingFace token</a> to enable the Sentiment Radar in the Advisory tab.</small>",
-        unsafe_allow_html=True,
-    )
-    hf_token_input = st.text_input(
-        "HuggingFace API Token",
-        type="password",
-        placeholder="hf_••••••••••••••••••••",
-        label_visibility="collapsed",
-    )
-    if hf_token_input:
-        st.session_state["hf_token"] = hf_token_input
-        st.success("Token saved for this session.")
-    elif "hf_token" not in st.session_state:
-        st.session_state["hf_token"] = ""
+with st.sidebar.expander("⚙️ App Maintenance Guide"):
+    st.markdown("""
+**The Golden Rule of New Stocks**
+
+If you purchase a brand new asset, the app calculates AUM automatically but hides it from Market Benchmark and Audit tabs.
+
+**To unlock full auditing:**
+1. Open `app.py` in your GitHub repository.
+2. Locate the `MASTER_INTEL` dict near the top.
+3. Add your stock:
+`"PANUNITED": {"Rate": 0.0, "PB": 1.0, "Ticker": "P52.SI", "Sector": "Industrials"}`
+4. Click **Commit changes** — the live app refreshes instantly.
+""")
 
 # --- 6. TABS ---
 t1, t2, t3, t4, t5, t6, t7, t8, t9 = st.tabs([
@@ -650,51 +1184,6 @@ t1, t2, t3, t4, t5, t6, t7, t8, t9 = st.tabs([
     "📜 Advisory", "⚠️ Risk", "📅 Dividends",
     "🎯 Optimise", "🔥 Stress Test", "🏆 Goals"
 ])
-
-# Make every tab button a TAB-key stop.
-# BaseWeb's roving-tabindex pattern sets tabindex="-1" on non-selected tabs,
-# so only the active tab is reachable by keyboard. This patch overrides that.
-# The observer watches ONLY the tab-list element (not the whole body) to avoid
-# a mutation cascade during heavy Streamlit re-renders such as PDF loading.
-st.iframe("""
-<script>
-(function () {
-    var doc = window.parent.document;
-    var pending = false;
-
-    function patch() {
-        if (pending) return;
-        pending = true;
-        requestAnimationFrame(function () {
-            doc.querySelectorAll('button[data-baseweb="tab"]').forEach(function (btn) {
-                // Only write when value actually needs to change — prevents re-triggering
-                if (btn.getAttribute('tabindex') !== '0') {
-                    btn.setAttribute('tabindex', '0');
-                }
-            });
-            pending = false;
-        });
-    }
-
-    function attach() {
-        var tabList = doc.querySelector('[data-baseweb="tab-list"]');
-        if (tabList) {
-            patch();
-            // Watch only the tab-list for tabindex changes — never the full body
-            new MutationObserver(patch).observe(tabList, {
-                subtree: true,
-                attributes: true,
-                attributeFilter: ['tabindex']
-            });
-        } else {
-            setTimeout(attach, 200);
-        }
-    }
-
-    attach();
-})();
-</script>
-""", height=1)
 
 # --- 7. MAIN CONTENT ---
 if uploaded_file:
@@ -752,16 +1241,6 @@ if uploaded_file:
                 if ticker_val:
                     df.loc[mask, 'Ticker'] = ticker_val
 
-        # Fallback: auto-fetch DPS from yfinance for MASTER_INTEL stocks where Rate = 0
-        yf_fetched_dps = []
-        if 'Known' in df.columns:
-            zero_known = df[(df['Known'] == True) & (df['DPS'] == 0) & (df['Ticker'].notnull())]
-            for idx in zero_known.index:
-                fetched = fetch_annual_dps(df.at[idx, 'Ticker'])
-                if fetched > 0:
-                    df.at[idx, 'DPS'] = fetched
-                    yf_fetched_dps.append(df.at[idx, 'Security'])
-
         total_aum = df['AUM (SGD)'].sum()
         df["Annual Dividend (SGD)"] = (df["Quantity"] * df["DPS"]).round(2)
         total_inc = df['Annual Dividend (SGD)'].sum()
@@ -788,12 +1267,6 @@ if uploaded_file:
             f"<li style='margin-bottom:4px;'><strong>{k}</strong> — {v}</li>"
             for k, v in active_notes.items()
         )
-        # Note stocks whose DPS was auto-fetched from yfinance
-        if yf_fetched_dps:
-            note_items += (
-                f"<li style='margin-bottom:4px;color:#1A6BBF;'><strong>Live DPS (yfinance):</strong> "
-                f"{', '.join(yf_fetched_dps)} — Rate was 0 in MASTER_INTEL; trailing 12-month dividend used instead. Update Rate to lock in a specific value.</li>"
-            )
         # Warn about unknown stocks still carrying DPS=0
         if 'Known' in df.columns:
             zero_dps_unknown = df[(df['Known'] == False) & (df['DPS'] == 0)]['Security'].tolist()
@@ -1105,7 +1578,7 @@ if uploaded_file:
                             rd = {"Security": n}
                             for y in wy:
                                 tick = df[df['Security'] == n]['Ticker'].iloc[0]
-                                h = yf.download(_si(tick), start=(datetime.now() - timedelta(days=y * 365)), end=datetime.now(), auto_adjust=True, progress=False)
+                                h = yf.download(tick, start=(datetime.now() - timedelta(days=y * 365)), end=datetime.now(), auto_adjust=True, progress=False)
                                 if not h.empty:
                                     c = h['Close'].iloc[:, 0] if isinstance(h['Close'], pd.DataFrame) else h['Close']
                                     rd[f"{y}Y Total Return"] = (float(c.iloc[-1]) / float(c.iloc[0]) - 1.0) * 100
@@ -1125,7 +1598,7 @@ if uploaded_file:
                             rd = {"Security": n}
                             for y in ly:
                                 tick = df[df['Security'] == n]['Ticker'].iloc[0]
-                                h = yf.download(_si(tick), start=(datetime.now() - timedelta(days=y * 365)), end=datetime.now(), auto_adjust=True, progress=False)
+                                h = yf.download(tick, start=(datetime.now() - timedelta(days=y * 365)), end=datetime.now(), auto_adjust=True, progress=False)
                                 if not h.empty:
                                     c = h['Close'].iloc[:, 0] if isinstance(h['Close'], pd.DataFrame) else h['Close']
                                     rd[f"{y}Y Total Return"] = (float(c.iloc[-1]) / float(c.iloc[0]) - 1.0) * 100
@@ -1164,7 +1637,7 @@ if uploaded_file:
                             dps = df[df['Security'] == b]['DPS'].iloc[0]
                             try:
                                 if pd.notnull(tick):
-                                    h = yf.download(_si(tick), period="5d", progress=False)
+                                    h = yf.download(tick, period="5d", progress=False)
                                     c = h['Close'].iloc[:, 0] if isinstance(h['Close'], pd.DataFrame) else h['Close']
                                     new_income_added += capital_per_buy * (dps / float(c.iloc[-1]))
                                 else:
@@ -1193,177 +1666,6 @@ if uploaded_file:
                                          legend=dict(orientation="h", y=1.1), margin=dict(t=30, b=20, l=20, r=20),
                                          yaxis=dict(showticklabels=False, showgrid=False))
                     st.plotly_chart(fig_ba, use_container_width=True)
-
-            # ── SENTIMENT RADAR ──────────────────────
-            st.markdown("---")
-            st.markdown("### 🧠 Sentiment Radar — FinBERT News Analysis")
-            st.markdown(
-                '<p class="tab-subtitle" style="margin-top:-10px;">AI-scored sentiment from the latest news headlines for each holding, '
-                'powered by <strong>ProsusAI/FinBERT</strong> via HuggingFace.</p>',
-                unsafe_allow_html=True,
-            )
-            hf_token = st.session_state.get("hf_token", "")
-            if not hf_token:
-                st.info("Enter your HuggingFace API token in the **AI Sentiment (FinBERT)** panel in the sidebar to activate this section.")
-            else:
-                sent_eligible = df[df['Ticker'].notnull()].copy()
-                if sent_eligible.empty:
-                    st.warning("No holdings with market tickers available for sentiment analysis.")
-                else:
-                    col_run, col_clear = st.columns([1, 5])
-                    with col_run:
-                        run_sentiment = st.button("Analyse Sentiment", type="primary")
-                    with col_clear:
-                        if st.button("Clear Results"):
-                            st.session_state.pop("sentiment_results", None)
-                            st.rerun()
-
-                    if run_sentiment:
-                        all_results = {}
-                        loading_flag = False
-                        progress_bar = st.progress(0, text="Fetching news and scoring sentiment...")
-                        holdings = sent_eligible[['Security', 'Ticker', 'AUM (SGD)']].values.tolist()
-                        for idx, (name, ticker, aum) in enumerate(holdings):
-                            headlines = _fetch_news_headlines(_si(ticker))
-                            if not headlines:
-                                all_results[name] = {
-                                    "ticker": ticker, "aum": aum,
-                                    "headlines": [], "scores": [],
-                                    "summary": {"label": "neutral", "net": 0.0,
-                                                "pos": 0, "neu": 0, "neg": 0, "count": 0},
-                                }
-                                progress_bar.progress((idx + 1) / len(holdings),
-                                                      text=f"No news found for {name} — skipping")
-                                continue
-                            scored = _call_finbert(headlines, hf_token)
-                            if scored == "loading":
-                                loading_flag = True
-                                break
-                            if scored is None:
-                                scored = [{"label": "neutral", "score": 1.0}] * len(headlines)
-                            all_results[name] = {
-                                "ticker": ticker, "aum": aum,
-                                "headlines": headlines, "scores": scored,
-                                "summary": _aggregate_sentiment(scored),
-                            }
-                            progress_bar.progress((idx + 1) / len(holdings),
-                                                  text=f"Scored {name} — {len(headlines)} headline(s)")
-                        progress_bar.empty()
-                        if loading_flag:
-                            st.warning("FinBERT model is loading on HuggingFace — wait ~20 seconds and click Analyse Sentiment again.")
-                        else:
-                            st.session_state["sentiment_results"] = all_results
-
-                    if "sentiment_results" in st.session_state:
-                        results = st.session_state["sentiment_results"]
-
-                        # ── KPI summary bar ──────────────────────────────
-                        n_bull = sum(1 for r in results.values() if r["summary"]["label"] == "positive")
-                        n_bear = sum(1 for r in results.values() if r["summary"]["label"] == "negative")
-                        n_neut = sum(1 for r in results.values() if r["summary"]["label"] == "neutral")
-                        total_scored = len(results)
-                        aum_bull = sum(r["aum"] for r in results.values() if r["summary"]["label"] == "positive")
-                        aum_bear = sum(r["aum"] for r in results.values() if r["summary"]["label"] == "negative")
-                        total_aum_sent = sum(r["aum"] for r in results.values())
-                        wtd_net = (
-                            sum(r["summary"]["net"] * r["aum"] for r in results.values()) / total_aum_sent
-                            if total_aum_sent > 0 else 0.0
-                        )
-                        port_label = "positive" if wtd_net > 0.1 else ("negative" if wtd_net < -0.1 else "neutral")
-                        sk1, sk2, sk3, sk4 = st.columns(4)
-                        with sk1:
-                            kpi_card(_SENTIMENT_ICON[port_label],
-                                     "Portfolio Sentiment",
-                                     _SENTIMENT_LABEL[port_label])
-                        with sk2:
-                            kpi_card("📈", "Bullish Holdings",
-                                     f"{n_bull} ({aum_bull / total_aum_sent * 100:.0f}% AUM)" if total_aum_sent else str(n_bull))
-                        with sk3:
-                            kpi_card("📉", "Bearish Holdings",
-                                     f"{n_bear} ({aum_bear / total_aum_sent * 100:.0f}% AUM)" if total_aum_sent else str(n_bear))
-                        with sk4:
-                            kpi_card("➡️", "Neutral Holdings", str(n_neut))
-
-                        st.markdown("<br>", unsafe_allow_html=True)
-
-                        # ── Per-holding results table ─────────────────────
-                        rows_html = ""
-                        for name, r in sorted(results.items(),
-                                              key=lambda x: x[1]["summary"]["net"],
-                                              reverse=True):
-                            s   = r["summary"]
-                            col = _SENTIMENT_COLOUR[s["label"]]
-                            lbl = _SENTIMENT_LABEL[s["label"]]
-                            ico = _SENTIMENT_ICON[s["label"]]
-                            bar_pos = int(s["pos"] / s["count"] * 100) if s["count"] else 0
-                            bar_neg = int(s["neg"] / s["count"] * 100) if s["count"] else 0
-                            bar_neu = 100 - bar_pos - bar_neg
-                            no_news = s["count"] == 0
-                            rows_html += f"""
-                            <tr>
-                              <td style='padding:8px 12px;font-weight:600;'>{name}</td>
-                              <td style='padding:8px 12px;color:#8fa8cc;font-size:0.82rem;'>{r['ticker']}</td>
-                              <td style='padding:8px 12px;'>
-                                <span style='background:{col};color:#fff;padding:3px 10px;
-                                             border-radius:12px;font-size:0.8rem;font-weight:600;'>
-                                  {ico} {lbl}
-                                </span>
-                              </td>
-                              <td style='padding:8px 12px;min-width:140px;'>
-                                {'<span style="color:#8fa8cc;font-size:0.8rem;">No news found</span>' if no_news else
-                                 f'<div style="display:flex;height:10px;border-radius:5px;overflow:hidden;width:140px;">'
-                                 f'<div style="width:{bar_pos}%;background:#27AE60;"></div>'
-                                 f'<div style="width:{bar_neu}%;background:#7F8C8D;"></div>'
-                                 f'<div style="width:{bar_neg}%;background:#E74C3C;"></div>'
-                                 f'</div>'
-                                 f'<div style="font-size:0.72rem;color:#8fa8cc;margin-top:3px;">'
-                                 f'{s["pos"]}↑ {s["neu"]}→ {s["neg"]}↓ of {s["count"]} headlines</div>'}
-                              </td>
-                              <td style='padding:8px 12px;font-size:0.8rem;color:#8fa8cc;'>
-                                {f"{s['net']:+.2f}" if not no_news else "—"}
-                              </td>
-                            </tr>"""
-                        st.markdown(f"""
-                        <table style='width:100%;border-collapse:collapse;font-size:0.88rem;'>
-                          <thead>
-                            <tr style='border-bottom:2px solid #1e3a5f;color:#8fa8cc;font-size:0.78rem;text-transform:uppercase;'>
-                              <th style='padding:6px 12px;text-align:left;'>Holding</th>
-                              <th style='padding:6px 12px;text-align:left;'>Ticker</th>
-                              <th style='padding:6px 12px;text-align:left;'>Signal</th>
-                              <th style='padding:6px 12px;text-align:left;'>Headline Breakdown</th>
-                              <th style='padding:6px 12px;text-align:left;'>Net Score</th>
-                            </tr>
-                          </thead>
-                          <tbody>{rows_html}</tbody>
-                        </table>
-                        """, unsafe_allow_html=True)
-
-                        # ── Headline drill-down ───────────────────────────
-                        st.markdown("<br>", unsafe_allow_html=True)
-                        with st.expander("Headline Details — click to inspect per-holding news"):
-                            drill = st.selectbox(
-                                "Select holding",
-                                options=[n for n, r in results.items() if r["headlines"]],
-                                key="sent_drill",
-                            )
-                            if drill and drill in results:
-                                dr = results[drill]
-                                for headline, score in zip(dr["headlines"], dr["scores"]):
-                                    c   = _SENTIMENT_COLOUR[score["label"]]
-                                    lbl = _SENTIMENT_LABEL[score["label"]]
-                                    st.markdown(
-                                        f"<div style='padding:7px 12px;margin:4px 0;border-left:4px solid {c};"
-                                        f"background:rgba(255,255,255,0.03);border-radius:0 6px 6px 0;'>"
-                                        f"<span style='color:{c};font-weight:600;font-size:0.8rem;'>{lbl} {score['score']:.0%}</span>"
-                                        f"<div style='margin-top:3px;font-size:0.88rem;'>{headline}</div>"
-                                        f"</div>",
-                                        unsafe_allow_html=True,
-                                    )
-                        st.caption(
-                            "Sentiment scored by **ProsusAI/FinBERT** via HuggingFace Inference API. "
-                            "Net score = (bullish − bearish) / headline count. "
-                            "Results cached for 1 hour — click **Analyse Sentiment** to refresh."
-                        )
 
         # ══════════════════════════════════════════
         # TAB 5 — RISK ANALYTICS
