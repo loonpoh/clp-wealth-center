@@ -833,9 +833,14 @@ if uploaded_file:
                 st.plotly_chart(fig_sun, use_container_width=True)
             st.markdown("<br>", unsafe_allow_html=True)
             st.markdown("<h4 style='text-align:center;'>Asset Efficiency Matrix: Valuation vs. Yield</h4>", unsafe_allow_html=True)
-            fig_scatter = px.scatter(df[df['Sector'] != 'Fixed Income'], x="P/B Ratio", y="Dividend Yield (%)",
-                                     size="AUM (SGD)", color="Sector", hover_name="Security", template="plotly_dark", height=500)
-            fig_scatter.update_layout(margin=dict(t=20, l=10, r=10, b=10))
+            _scatter_df = df[df['Sector'] != 'Fixed Income']
+            fig_scatter = px.scatter(_scatter_df, x="P/B Ratio", y="Dividend Yield (%)",
+                                     size="AUM (SGD)", color="Sector", hover_name="Security", template="plotly_dark", height=500,
+                                     size_max=40)
+            fig_scatter.update_layout(
+                margin=dict(t=20, l=10, r=10, b=10),
+                yaxis=dict(range=[0, 15], title="Dividend Yield (%)"),
+            )
             st.plotly_chart(fig_scatter, use_container_width=True)
 
         # ══════════════════════════════════════════
@@ -1541,6 +1546,146 @@ if uploaded_file:
                     with rv3: kpi_card("⚡", "Avg. Sharpe Ratio", f"{risk_df['Sharpe Ratio'].mean():.2f}")
                     with rv4: kpi_card("📊", "Portfolio Beta", f"{beta_vals.mean():.2f}" if not beta_vals.empty else "N/A")
                     st.caption("ℹ️ VaR = estimated max 1-day loss at 95% confidence. Sharpe uses SGD T-bill ~3.7% risk-free rate. Beta measures sensitivity to STI.")
+
+                    # --- Portfolio Risk Commentary (technical / plain-English toggle) ---
+                    _avg_vol    = risk_df['Ann. Volatility (%)'].mean()
+                    _avg_sharpe = risk_df['Sharpe Ratio'].mean()
+                    _avg_beta   = beta_vals.mean() if not beta_vals.empty else None
+                    _total_aum  = risk_m['AUM (SGD)'].sum()
+                    _var_pct    = (total_var / _total_aum * 100) if _total_aum > 0 else 0
+                    _valid_s    = risk_df.dropna(subset=['Sharpe Ratio'])
+                    _valid_dd   = risk_df.dropna(subset=['Max Drawdown (%)'])
+                    _best_s     = _valid_s.loc[_valid_s['Sharpe Ratio'].idxmax()] if not _valid_s.empty else None
+                    _worst_dd   = _valid_dd.loc[_valid_dd['Max Drawdown (%)'].idxmin()] if not _valid_dd.empty else None
+
+                    if 'risk_commentary_simple' not in st.session_state:
+                        st.session_state['risk_commentary_simple'] = False
+
+                    _simple = st.toggle(
+                        "Plain-language explanation",
+                        key="risk_commentary_simple",
+                        help="Switch between professional commentary and a plain-English summary"
+                    )
+
+                    if not _simple:
+                        # ── Technical version ──────────────────────────────────
+                        if _avg_vol < 10:
+                            _vol_lbl = "low"; _vol_col = "#27ae60"
+                            _vol_ctx = "consistent with a capital-preservation or income-focused mandate"
+                        elif _avg_vol < 20:
+                            _vol_lbl = "moderate"; _vol_col = "#e67e22"
+                            _vol_ctx = "typical of a diversified SGX equity portfolio"
+                        else:
+                            _vol_lbl = "elevated"; _vol_col = "#e74c3c"
+                            _vol_ctx = "indicating meaningful price-swing risk that merits close monitoring"
+
+                        if _avg_sharpe > 1.5:
+                            _sharpe_ctx = f"an <strong>excellent</strong> risk-adjusted return profile (Sharpe {_avg_sharpe:.2f}) — well above the 1.0 practitioner benchmark, implying each unit of risk is being well rewarded"
+                        elif _avg_sharpe > 1.0:
+                            _sharpe_ctx = f"a <strong>good</strong> risk-adjusted return profile (Sharpe {_avg_sharpe:.2f}), clearing the 1.0 threshold considered the minimum acceptable by most institutions"
+                        elif _avg_sharpe > 0.5:
+                            _sharpe_ctx = f"a <strong>fair</strong> risk-adjusted return profile (Sharpe {_avg_sharpe:.2f}) — returns are positive but the compensation for risk taken is below optimal; selective reallocation may improve efficiency"
+                        else:
+                            _sharpe_ctx = f"a <strong>weak</strong> risk-adjusted return profile (Sharpe {_avg_sharpe:.2f}), suggesting the portfolio is generating insufficient return relative to the volatility carried"
+
+                        if _avg_beta is None:
+                            _beta_ctx = "market-sensitivity data is unavailable for this portfolio"
+                        elif _avg_beta < 0.8:
+                            _beta_ctx = f"a <strong>defensive</strong> market posture (β {_avg_beta:.2f}) — the portfolio is expected to decline less than the STI in broad market sell-offs, favouring capital preservation over cyclical upside"
+                        elif _avg_beta <= 1.2:
+                            _beta_ctx = f"<strong>market-neutral</strong> sensitivity to the STI (β {_avg_beta:.2f}), broadly tracking the local index with no pronounced defensive or aggressive tilt"
+                        else:
+                            _beta_ctx = f"an <strong>aggressive</strong> market bias (β {_avg_beta:.2f}) — amplifying both gains and drawdowns relative to the STI; suitable only for investors with a high risk tolerance and longer time horizon"
+
+                        _tail_para = ""
+                        if _best_s is not None and _worst_dd is not None:
+                            _tail_para = (
+                                f"<p style='font-size:0.85rem;color:#2c3e50;margin:0;line-height:1.65;'>"
+                                f"At the individual holding level, <strong>{_best_s['Security']}</strong> delivers the strongest risk-adjusted return "
+                                f"(Sharpe {_best_s['Sharpe Ratio']:.2f}), making it the portfolio's most efficient income-to-risk contributor. "
+                                f"Conversely, <strong>{_worst_dd['Security']}</strong> exhibits the deepest historical peak-to-trough drawdown "
+                                f"({_worst_dd['Max Drawdown (%)']:.1f}%), warranting a position-size review against the investor's maximum tolerable loss threshold."
+                                f"</p>"
+                            )
+
+                        _html = f"""
+<div style='background:rgba(26,82,118,0.05);border-left:4px solid #1a5276;
+            border-radius:0 8px 8px 0;padding:16px 20px;margin:6px 0 4px 0;'>
+  <p style='font-size:0.82rem;font-weight:700;color:#1a5276;margin:0 0 10px 0;
+            letter-spacing:0.05em;text-transform:uppercase;'>Portfolio Risk Commentary</p>
+  <p style='font-size:0.85rem;color:#2c3e50;margin:0 0 9px 0;line-height:1.65;'>
+    The portfolio exhibits <strong style='color:{_vol_col};'>{_vol_lbl} average annualised volatility of {_avg_vol:.1f}%</strong>,
+    {_vol_ctx}. On a risk-adjusted basis, the holdings present {_sharpe_ctx}.
+  </p>
+  <p style='font-size:0.85rem;color:#2c3e50;margin:0 0 9px 0;line-height:1.65;'>
+    In terms of market sensitivity, the portfolio carries {_beta_ctx}.
+    At a 95% confidence level, the estimated single-day Value at Risk stands at
+    <strong>S${total_var:,.0f}</strong> ({_var_pct:.2f}% of invested capital),
+    implying that on approximately 1 in 20 trading sessions, mark-to-market losses could approach
+    or exceed this level under normal market conditions.
+  </p>
+  {_tail_para}
+</div>"""
+
+                    else:
+                        # ── Plain-English version ──────────────────────────────
+                        if _avg_vol < 10:
+                            _s_vol = f"your portfolio is quite <strong style='color:#27ae60;'>steady</strong> — prices don't jump around much (average swing: {_avg_vol:.1f}% per year)"
+                        elif _avg_vol < 20:
+                            _s_vol = f"your portfolio has a <strong style='color:#e67e22;'>moderate amount of price movement</strong> — values can shift noticeably from month to month (average swing: {_avg_vol:.1f}% per year)"
+                        else:
+                            _s_vol = f"your portfolio is <strong style='color:#e74c3c;'>quite bumpy</strong> — expect significant ups and downs in value (average swing: {_avg_vol:.1f}% per year)"
+
+                        if _avg_sharpe > 1.5:
+                            _s_sharpe = f"you are being <strong>very well rewarded</strong> for the risk you're taking — the returns are strong relative to the volatility (score: {_avg_sharpe:.2f})"
+                        elif _avg_sharpe > 1.0:
+                            _s_sharpe = f"the returns are <strong>worth the risk</strong> — for every unit of price swing, you are earning a solid return (score: {_avg_sharpe:.2f})"
+                        elif _avg_sharpe > 0.5:
+                            _s_sharpe = f"the returns are <strong>okay but not great</strong> for the risk involved — there may be room to improve by switching some holdings (score: {_avg_sharpe:.2f})"
+                        else:
+                            _s_sharpe = f"the returns <strong>do not justify the price swings</strong> at the moment — it may be worth reviewing whether the higher-risk holdings are pulling their weight (score: {_avg_sharpe:.2f})"
+
+                        if _avg_beta is None:
+                            _s_beta = "we don't have enough data to compare your portfolio against the Singapore market"
+                        elif _avg_beta < 0.8:
+                            _s_beta = f"your portfolio tends to <strong>fall less than the Singapore market</strong> when things turn bad — it is on the defensive side (market sensitivity: {_avg_beta:.2f})"
+                        elif _avg_beta <= 1.2:
+                            _s_beta = f"your portfolio moves <strong>roughly in line with the Singapore market</strong> — neither particularly defensive nor aggressive (market sensitivity: {_avg_beta:.2f})"
+                        else:
+                            _s_beta = f"your portfolio tends to <strong>swing more than the Singapore market</strong> — bigger gains when markets rise, but bigger drops when they fall (market sensitivity: {_avg_beta:.2f})"
+
+                        _s_tail = ""
+                        if _best_s is not None and _worst_dd is not None:
+                            _s_tail = (
+                                f"<p style='font-size:0.85rem;color:#2c3e50;margin:0;line-height:1.65;'>"
+                                f"Among your holdings, <strong>{_best_s['Security']}</strong> gives you the best bang for your buck — "
+                                f"it delivers solid returns without taking on too much risk. "
+                                f"On the other hand, <strong>{_worst_dd['Security']}</strong> has had the biggest price drop from its peak "
+                                f"({abs(_worst_dd['Max Drawdown (%)']):.1f}% at its worst), so it's worth keeping an eye on how much of your money is sitting there."
+                                f"</p>"
+                            )
+
+                        _html = f"""
+<div style='background:rgba(39,174,96,0.05);border-left:4px solid #27ae60;
+            border-radius:0 8px 8px 0;padding:16px 20px;margin:6px 0 4px 0;'>
+  <p style='font-size:0.82rem;font-weight:700;color:#1e8449;margin:0 0 10px 0;
+            letter-spacing:0.05em;text-transform:uppercase;'>Plain-Language Summary</p>
+  <p style='font-size:0.85rem;color:#2c3e50;margin:0 0 9px 0;line-height:1.65;'>
+    In terms of how much your investments move up and down in price, {_s_vol}.
+    When it comes to whether the returns are worth it, {_s_sharpe}.
+  </p>
+  <p style='font-size:0.85rem;color:#2c3e50;margin:0 0 9px 0;line-height:1.65;'>
+    As for how closely your portfolio follows the Singapore stock market, {_s_beta}.
+    On a typical bad day — the kind that happens roughly once a month —
+    your portfolio could drop by around <strong>S${total_var:,.0f}</strong>
+    ({_var_pct:.2f}% of your total invested amount). This is just an estimate, not a guarantee.
+  </p>
+  {_s_tail}
+</div>"""
+
+                    st.markdown(_html, unsafe_allow_html=True)
+                    # --- end commentary ---
+
                     st.markdown("---")
                     st.markdown("#### Holdings Risk Profile")
                     disp_cols = ['Security', 'Ann. Volatility (%)', 'Ann. Return (%)', 'Sharpe Ratio', 'Beta (vs STI)', 'Daily VaR 95% (%)', 'Max Drawdown (%)']
@@ -1686,10 +1831,11 @@ if uploaded_file:
                                 fig_cal.add_trace(go.Bar(name=sec, x=month_labels, y=row,
                                                          marker_color=colors[i % len(colors)],
                                                          hovertemplate='%{fullData.name}: S$%{y:,.2f}<extra></extra>'))
-                        fig_cal.update_layout(barmode='stack', template='plotly_white', height=420,
+                        fig_cal.update_layout(barmode='stack', template='plotly_white', height=460,
                                               xaxis_title="Month", yaxis_title="Expected Income (SGD)",
-                                              legend=dict(orientation="h", y=-0.3, x=0),
-                                              margin=dict(t=20, b=100, l=20, r=20))
+                                              legend=dict(orientation="h", yanchor="bottom", y=1.08,
+                                                          xanchor="left", x=0, font=dict(size=11)),
+                                              margin=dict(t=100, b=40, l=20, r=20))
                         st.plotly_chart(fig_cal, use_container_width=True)
 
                     st.markdown("#### Monthly Breakdown")
