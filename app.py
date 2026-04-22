@@ -10,7 +10,7 @@ import requests
 from datetime import datetime, timedelta
 
 # --- 1. SYSTEM CONFIG ---
-st.set_page_config(layout="wide", page_title="CLP Wealth Center", page_icon="🏦")
+st.set_page_config(layout="wide", page_title="CDP Wealth Center", page_icon="🏦")
 
 # --- 2. CUSTOM CSS THEME ---
 st.markdown("""
@@ -619,7 +619,7 @@ def fetch_annual_dps(ticker):
 st.sidebar.markdown("""
 <div style='text-align:center; padding:16px 0 22px 0;'>
   <div style='font-size:2.4rem;'>🏦</div>
-  <div style='font-size:1.05rem; font-weight:700; color:#f0b429; letter-spacing:1.5px; margin-top:6px;'>CLP WEALTH CENTER</div>
+  <div style='font-size:1.05rem; font-weight:700; color:#f0b429; letter-spacing:1.5px; margin-top:6px;'>CDP WEALTH CENTER</div>
   <div style='font-size:0.72rem; color:#8fa8cc; margin-top:4px; letter-spacing:0.5px;'>Portfolio Intelligence Platform</div>
 </div>
 """, unsafe_allow_html=True)
@@ -643,6 +643,22 @@ with st.sidebar.expander("🤖 AI Sentiment (FinBERT)", expanded=False):
         st.success("Token saved for this session.")
     elif "hf_token" not in st.session_state:
         st.session_state["hf_token"] = ""
+
+st.sidebar.markdown("---")
+st.sidebar.markdown(
+    "<div style='font-size:0.72rem;color:#8fa8cc;line-height:1.55;padding:4px 2px 8px 2px;'>"
+    "<strong style='color:#a0b8d0;'>⚠️ Disclaimer</strong><br>"
+    "This app is provided for <strong>informational and educational purposes only</strong>. "
+    "It does not constitute financial advice, investment advice, or any form of recommendation to buy, "
+    "sell, or hold any security. All data, projections, and analytics are estimates based on "
+    "historical information and user-supplied inputs — they may be incomplete or inaccurate. "
+    "Past performance is not indicative of future results. "
+    "You are solely responsible for your own investment decisions. "
+    "The developer accepts no liability for any financial loss arising from use of this app. "
+    "Always consult a licensed financial adviser before making investment decisions."
+    "</div>",
+    unsafe_allow_html=True
+)
 
 # --- 6. TABS ---
 t1, t2, t3, t4, t5, t6, t7, t8, t9 = st.tabs([
@@ -1091,19 +1107,100 @@ if uploaded_file:
             p_map = scan_portfolio_returns(data_hash, tickers_and_names)
             losers = [k for k, v in p_map.items() if float(v) < 0.0]
             winners = sorted([k for k, v in p_map.items() if float(v) >= 0.0], key=lambda x: float(p_map[x]), reverse=True)[:10]
-            health = max(100 - (len(losers) * 5), 0)
+            # ── Weight-adjusted health score (4 components) ──────────────
+            _tot_elig_aum = eligible_df['AUM (SGD)'].sum() if not eligible_df.empty else 1.0
+            _n_elig = len(p_map)
+
+            # C1 Capital Quality (40 pts): penalises by AUM weight of 5Y losers
+            _loser_df = eligible_df[eligible_df['Security'].isin(losers)]
+            _loser_wt = _loser_df['AUM (SGD)'].sum() / _tot_elig_aum if _tot_elig_aum > 0 else 0
+            _c1 = 40.0 * (1.0 - _loser_wt)
+
+            # C2 Income Coverage (30 pts): AUM-weighted share of portfolio paying dividends
+            _c2 = 30.0 * (df[df['DPS'] > 0]['AUM (SGD)'].sum() / total_aum if total_aum > 0 else 0)
+
+            # C3 Concentration (20 pts): penalises if any single holding exceeds 20% of AUM
+            _top_wt = (df['AUM (SGD)'] / total_aum).max() if total_aum > 0 else 0
+            _c3 = 20.0 * max(0.0, 1.0 - max(0.0, _top_wt - 0.20) / 0.40)
+
+            # C4 Winner Breadth (10 pts): share of eligible holdings with positive 5Y return
+            _c4 = 10.0 * (len(winners) / _n_elig) if _n_elig > 0 else 0
+
+            health = round(_c1 + _c2 + _c3 + _c4)
+
             h_col1, h_col2 = st.columns([1, 1])
             with h_col1:
                 st.plotly_chart(health_gauge(health), use_container_width=True)
             with h_col2:
-                st.markdown("<br><br>", unsafe_allow_html=True)
+                st.markdown("<br>", unsafe_allow_html=True)
+
+                def _score_bar(score, max_score, color):
+                    pct = int(score / max_score * 100)
+                    return (
+                        f"<div style='background:#dde6f0;border-radius:4px;height:7px;width:100%;'>"
+                        f"<div style='background:{color};width:{pct}%;height:7px;border-radius:4px;'></div></div>"
+                    )
+
+                _components = [
+                    ("Capital Quality",  _c1, 40, "#1E8449" if _c1 >= 28 else "#B7770D" if _c1 >= 16 else "#C0392B"),
+                    ("Income Coverage",  _c2, 30, "#1E8449" if _c2 >= 21 else "#B7770D" if _c2 >= 12 else "#C0392B"),
+                    ("Concentration",    _c3, 20, "#1E8449" if _c3 >= 14 else "#B7770D" if _c3 >= 8  else "#C0392B"),
+                    ("Winner Breadth",   _c4, 10, "#1E8449" if _c4 >= 7  else "#B7770D" if _c4 >= 4  else "#C0392B"),
+                ]
+                _tbl = (
+                    "<table style='width:100%;border-collapse:collapse;font-size:0.81rem;'>"
+                    "<tr>"
+                    "<th style='text-align:left;color:#4a6a8a;padding:2px 6px;font-weight:600;'>Component</th>"
+                    "<th style='text-align:right;color:#4a6a8a;padding:2px 6px;'>Score</th>"
+                    "<th style='text-align:right;color:#4a6a8a;padding:2px 6px;'>Max</th>"
+                    "<th style='padding:2px 6px;width:38%;'></th>"
+                    "</tr>"
+                )
+                for _lbl, _s, _mx, _col in _components:
+                    _tbl += (
+                        f"<tr>"
+                        f"<td style='padding:5px 6px;color:#1a2a3a;font-weight:600;'>{_lbl}</td>"
+                        f"<td style='text-align:right;padding:5px 6px;color:{_col};font-weight:700;'>{_s:.1f}</td>"
+                        f"<td style='text-align:right;padding:5px 6px;color:#4a6a8a;'>{_mx}</td>"
+                        f"<td style='padding:5px 10px;vertical-align:middle;'>{_score_bar(_s, _mx, _col)}</td>"
+                        f"</tr>"
+                    )
+                _tbl += "</table>"
+                st.markdown(_tbl, unsafe_allow_html=True)
+                st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+
+                # Strength commentary
                 top_divs = df.nlargest(2, 'Annual Dividend (SGD)')['Security'].tolist()
-                anchor_text = f"**{', '.join(top_divs)}**" if top_divs else "diversified cash holdings"
-                st.markdown(f"**Strengths:** Core income stability anchored by {anchor_text}.")
-                st.markdown(f"**Priority:** Investigate **{len(losers)}** asset{'s' if len(losers) != 1 else ''} underperforming capital benchmarks over 5 years.")
-                if health >= 70: st.success("Portfolio is in **good health**. Focus on growth and income optimisation.")
-                elif health >= 40: st.warning("Portfolio health is **moderate**. Consider reviewing underperformers.")
-                else: st.error("Portfolio health is **below target**. Action on losers is recommended.")
+                _tot_inc = df['Annual Dividend (SGD)'].sum()
+                if top_divs and _tot_inc > 0:
+                    _top2_inc_pct = df.nlargest(2, 'Annual Dividend (SGD)')['Annual Dividend (SGD)'].sum() / _tot_inc * 100
+                    anchor_text = f"**{', '.join(top_divs)}**"
+                    st.markdown(f"**Strength:** Income anchored by {anchor_text}, contributing **{_top2_inc_pct:.0f}%** of total dividends.")
+                else:
+                    st.markdown("**Strength:** Portfolio spans multiple income-generating holdings.")
+
+                # Priority commentary — weighted, names the biggest drags
+                if losers:
+                    _loser_weights = {
+                        l: eligible_df.loc[eligible_df['Security'] == l, 'AUM (SGD)'].sum() / _tot_elig_aum * 100
+                        for l in losers
+                    }
+                    _top_drags = sorted(_loser_weights.items(), key=lambda x: x[1], reverse=True)[:3]
+                    _drag_text = ", ".join([f"**{n}** ({w:.1f}%)" for n, w in _top_drags])
+                    st.markdown(
+                        f"**Priority:** {len(losers)} holding{'s' if len(losers) != 1 else ''} posted negative 5-year returns, "
+                        f"representing **{_loser_wt * 100:.1f}% of eligible AUM**. "
+                        f"Largest drag{'s' if len(_top_drags) > 1 else ''}: {_drag_text}."
+                    )
+                else:
+                    st.markdown("**Priority:** All eligible holdings delivered positive 5-year returns.")
+
+                if health >= 75:
+                    st.success("Portfolio is in **strong health**. Focus on income growth and selective concentration reduction.")
+                elif health >= 50:
+                    st.warning("Portfolio health is **adequate**. Address capital drag from underperformers before they become material.")
+                else:
+                    st.error("Portfolio health requires **active attention**. Capital quality or income coverage is materially impaired.")
             st.markdown("---")
             c_aud1, c_aud2 = st.columns(2)
             with c_aud1:
@@ -1157,7 +1254,22 @@ if uploaded_file:
                 sim_sell = st.multiselect("Select assets to liquidate", options=df['Security'].unique(), default=held_losers)
             with col_buy:
                 st.success("📈 Destination of Funds — Buy")
-                sim_buy = st.multiselect("Select assets to acquire", options=df['Security'].unique(), default=winners[:2] if len(winners) > 1 else None)
+                sim_buy_curr = st.multiselect("Select current assets to acquire", options=df['Security'].unique(), default=winners[:2] if len(winners) > 1 else None)
+                _new_asset_options = sorted([k for k in MASTER_INTEL if k not in df['Security'].values])
+                sim_buy_new = st.multiselect("Select new assets to acquire", options=_new_asset_options)
+            sim_buy = list(sim_buy_curr) + list(sim_buy_new)
+            _alloc_pcts = {}
+            if sim_buy:
+                _n_buy = len(sim_buy)
+                _default_pct = round(100.0 / _n_buy, 1)
+                st.markdown("**Allocation of Freed Capital (%)**")
+                _alloc_cols = st.columns(min(_n_buy, 4))
+                for _i, _b in enumerate(sim_buy):
+                    with _alloc_cols[_i % min(_n_buy, 4)]:
+                        _alloc_pcts[_b] = st.number_input(f"{_b}", min_value=0.0, max_value=100.0, value=_default_pct, step=1.0, key=f"alloc_{_b}")
+                _total_alloc_display = sum(_alloc_pcts.values())
+                if abs(_total_alloc_display - 100.0) > 0.5:
+                    st.warning(f"⚠️ Allocations sum to {_total_alloc_display:.1f}% — will be normalised proportionally on simulation.")
             if st.button("🔄 Execute Simulation"):
                 if not sim_sell or not sim_buy:
                     st.warning("⚠️ Please select at least one asset to sell and one to buy.")
@@ -1169,20 +1281,27 @@ if uploaded_file:
                     freed_capital = df_sell['AUM (SGD)'].sum()
                     lost_income = df_sell['Annual Dividend (SGD)'].sum()
                     new_income_added = 0
-                    capital_per_buy = freed_capital / len(sim_buy)
+                    _sim_total_alloc = sum(_alloc_pcts.values()) or 1.0
+                    _capital_alloc = {b: freed_capital * (_alloc_pcts.get(b, 0) / _sim_total_alloc) for b in sim_buy}
                     with st.spinner("Fetching live market yields for acquisition targets..."):
                         for b in sim_buy:
-                            tick = df[df['Security'] == b]['Ticker'].iloc[0]
-                            dps = df[df['Security'] == b]['DPS'].iloc[0]
+                            _b_capital = _capital_alloc[b]
+                            if b in df['Security'].values:
+                                tick = df[df['Security'] == b]['Ticker'].iloc[0]
+                                dps = df[df['Security'] == b]['DPS'].iloc[0]
+                            else:
+                                _mi = MASTER_INTEL.get(b, {})
+                                tick = _mi.get('Ticker')
+                                dps = _mi.get('Rate', 0)
                             try:
                                 if pd.notnull(tick):
                                     h = yf.download(_si(tick), period="5d", progress=False)
                                     c = h['Close'].iloc[:, 0] if isinstance(h['Close'], pd.DataFrame) else h['Close']
-                                    new_income_added += capital_per_buy * (dps / float(c.iloc[-1]))
+                                    new_income_added += _b_capital * (dps / float(c.iloc[-1]))
                                 else:
-                                    new_income_added += capital_per_buy * 0.04
+                                    new_income_added += _b_capital * 0.04
                             except Exception:
-                                new_income_added += capital_per_buy * 0.04
+                                new_income_added += _b_capital * 0.04
                     new_aum = curr_aum
                     new_inc = curr_inc - lost_income + new_income_added
                     new_yield = (new_inc / new_aum) * 100
@@ -1213,10 +1332,16 @@ if uploaded_file:
                         _tickers_b = ",".join(_elig_sim['Ticker'].tolist())
                         _names_b   = "|".join(_elig_sim['Security'].tolist())
                         _df_after  = _elig_sim[~_elig_sim['Security'].isin(sim_sell)].copy()
-                        for _ba in sim_buy:
+                        for _ba in sim_buy_curr:
                             _m = _df_after['Security'] == _ba
                             if _m.any():
-                                _df_after.loc[_m, 'AUM (SGD)'] = _df_after.loc[_m, 'AUM (SGD)'] + capital_per_buy
+                                _df_after.loc[_m, 'AUM (SGD)'] = _df_after.loc[_m, 'AUM (SGD)'] + _capital_alloc.get(_ba, 0)
+                        for _ba in sim_buy_new:
+                            _mi_new = MASTER_INTEL.get(_ba, {})
+                            _new_tick = _mi_new.get('Ticker')
+                            if _new_tick:
+                                _new_row = pd.DataFrame([{'Security': _ba, 'Ticker': _new_tick, 'AUM (SGD)': _capital_alloc.get(_ba, 0)}])
+                                _df_after = pd.concat([_df_after, _new_row], ignore_index=True)
                         if not _df_after.empty:
                             _tickers_a = ",".join(_df_after['Ticker'].tolist())
                             _names_a   = "|".join(_df_after['Security'].tolist())
@@ -1848,6 +1973,337 @@ if uploaded_file:
                     st.dataframe(sum_df.style.format({"Expected Income (SGD)": "S${:,.2f}"})
                                  .background_gradient(subset=["Expected Income (SGD)"], cmap="Greens", vmin=0),
                                  hide_index=True, use_container_width=True)
+
+            # ══════════════════════════════════════════
+            # DIVIDEND CONSISTENCY TRACKER
+            # ══════════════════════════════════════════
+            st.markdown("---")
+            st.markdown("### 🔍 Dividend Consistency Tracker")
+            st.markdown(
+                '<p style="font-size:0.88rem;color:#555;margin-top:-6px;">'
+                'Analyse the historical reliability, growth trajectory, and free cash flow coverage '
+                'of any holding\'s dividend record.</p>',
+                unsafe_allow_html=True
+            )
+            _dct_elig = df[df['Ticker'].notnull()].copy()
+            if _dct_elig.empty:
+                st.info("No holdings with market tickers available for consistency analysis.")
+            else:
+                _dct_opts = sorted(_dct_elig['Security'].tolist())
+                _dct_c1, _dct_c2 = st.columns([3, 1])
+                with _dct_c1:
+                    _dct_stock = st.selectbox("Select a holding to analyse", options=_dct_opts, key="dct_sel")
+                with _dct_c2:
+                    st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+                    _dct_go = st.button("🔍 Analyse", key="dct_go")
+
+                if _dct_go:
+                    _dct_row  = _dct_elig[_dct_elig['Security'] == _dct_stock].iloc[0]
+                    _dct_tick = _dct_row['Ticker']
+                    _dct_dps  = float(_dct_row['DPS'])
+
+                    with st.spinner(f"Fetching dividend and financial data for {_dct_stock}…"):
+                        try:
+                            _tk       = yf.Ticker(_si(_dct_tick))
+                            _div_raw  = _tk.dividends
+                            _cf_stmt  = _tk.cashflow
+                            _tk_info  = _tk.info
+                        except Exception as _fe:
+                            st.error(f"Data fetch failed: {_fe}")
+                            _div_raw  = pd.Series(dtype=float)
+                            _cf_stmt  = pd.DataFrame()
+                            _tk_info  = {}
+
+                    if _div_raw.empty:
+                        st.warning(f"No dividend history found on Yahoo Finance for **{_dct_stock}**.")
+                    else:
+                        # ── Normalise timezone ────────────────────────────────
+                        if hasattr(_div_raw.index, 'tz') and _div_raw.index.tz:
+                            _div_raw.index = _div_raw.index.tz_localize(None)
+
+                        _annual_div = _div_raw.groupby(_div_raw.index.year).sum()
+                        _yr_list    = _annual_div.index.tolist()
+                        _n_yrs      = len(_yr_list)
+                        _curr_yr    = datetime.now().year
+
+                        # ── Consecutive-year longevity ────────────────────────
+                        _longevity = 1
+                        if _n_yrs >= 2:
+                            for _li in range(len(_yr_list) - 1, 0, -1):
+                                if _yr_list[_li] - _yr_list[_li - 1] <= 1:
+                                    _longevity += 1
+                                else:
+                                    break
+
+                        # ── YoY growth ────────────────────────────────────────
+                        _yoy      = (_annual_div.pct_change() * 100).round(2)
+                        _yoy_val  = _yoy.dropna()
+                        _neg_yrs  = int((_yoy_val < 0).sum())
+                        _pos_yrs  = int((_yoy_val > 0).sum())
+
+                        # ── 5Y CAGR ───────────────────────────────────────────
+                        _cagr_5y  = None
+                        _5y_data  = _annual_div[_annual_div.index >= _curr_yr - 5]
+                        if len(_5y_data) >= 2 and float(_5y_data.iloc[0]) > 0:
+                            _5y_span = _5y_data.index[-1] - _5y_data.index[0]
+                            if _5y_span > 0:
+                                _cagr_5y = ((_5y_data.iloc[-1] / _5y_data.iloc[0]) ** (1 / _5y_span) - 1) * 100
+
+                        # Full-history CAGR as fallback
+                        _cagr_all = None
+                        if _n_yrs >= 3 and float(_annual_div.iloc[0]) > 0:
+                            _full_span = _yr_list[-1] - _yr_list[0]
+                            if _full_span > 0:
+                                _cagr_all = ((_annual_div.iloc[-1] / _annual_div.iloc[0]) ** (1 / _full_span) - 1) * 100
+                        _cagr_use = _cagr_5y if _cagr_5y is not None else _cagr_all
+
+                        # ── FCF Payout Ratio ──────────────────────────────────
+                        _fcf_payout = None
+                        _fcf_note   = ""
+                        try:
+                            _shares   = _tk_info.get('sharesOutstanding') or 0
+                            _fcf_abs  = _tk_info.get('freeCashflow') or 0
+                            _lat_dps  = float(_annual_div.iloc[-1]) if _n_yrs > 0 else _dct_dps
+                            _div_est  = _lat_dps * _shares
+
+                            if _fcf_abs > 0 and _shares > 0:
+                                _fcf_payout = (_div_est / _fcf_abs) * 100
+                                _fcf_note   = "trailing 12M FCF (Yahoo Finance)"
+                            elif not _cf_stmt.empty:
+                                _cf_idx_l = [str(x).lower() for x in _cf_stmt.index]
+
+                                def _cf_row(keys):
+                                    for _k in keys:
+                                        _hits = [_i for _i, _x in enumerate(_cf_idx_l) if _k in _x]
+                                        if _hits:
+                                            _v = _cf_stmt.iloc[_hits[0], 0]
+                                            return float(_v) if pd.notna(_v) else None
+                                    return None
+
+                                _fcf_val = _cf_row(['free cash flow'])
+                                if _fcf_val is None:
+                                    _ocf = _cf_row(['operating cash flow', 'cash from operating'])
+                                    _cap = _cf_row(['capital expenditure'])
+                                    if _ocf is not None and _cap is not None:
+                                        _fcf_val = _ocf + _cap
+                                _div_paid = _cf_row(['dividends paid', 'cash dividends', 'common stock dividend'])
+
+                                if _fcf_val and _fcf_val > 0:
+                                    _num = abs(_div_paid) if _div_paid else _div_est
+                                    _fcf_payout = (_num / _fcf_val) * 100
+                                    _fcf_note   = "cash flow statement" if _div_paid else "estimated from DPS × shares"
+                        except Exception:
+                            pass
+
+                        # ── Consistency score (100 pts, 4 components of 25 each) ──
+                        _sc_lon = min(25.0, (_longevity / 10) * 25)
+                        _sc_grw = 25.0 * min(1.0, max(0.0, (_cagr_use or 0) / 8)) if _cagr_use is not None else 0.0
+                        _n_per  = max(1, _n_yrs - 1)
+                        _sc_rel = 25.0 * max(0.0, 1.0 - _neg_yrs / _n_per)
+                        if _fcf_payout is not None:
+                            _sc_fcf = (25.0 if _fcf_payout <= 50
+                                       else 25.0 * max(0.0, 1 - (_fcf_payout - 50) / 50) if _fcf_payout <= 100
+                                       else 0.0)
+                        else:
+                            _sc_fcf = 12.5
+                        _con_score = round(_sc_lon + _sc_grw + _sc_rel + _sc_fcf)
+
+                        if   _con_score >= 80: _rating, _rcol = "AA — Highly Reliable",  "#1E8449"
+                        elif _con_score >= 65: _rating, _rcol = "A  — Reliable",          "#27AE60"
+                        elif _con_score >= 50: _rating, _rcol = "B  — Adequate",           "#B7770D"
+                        elif _con_score >= 35: _rating, _rcol = "C  — Inconsistent",       "#E67E22"
+                        else:                  _rating, _rcol = "D  — Unreliable",         "#C0392B"
+
+                        # ── KPI row ───────────────────────────────────────────
+                        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+                        _k1, _k2, _k3, _k4 = st.columns(4)
+                        with _k1:
+                            kpi_card("📅", "Dividend Longevity", f"{_longevity} yrs")
+                        with _k2:
+                            kpi_card("📈", "5Y Dividend CAGR", f"{_cagr_5y:.1f}%" if _cagr_5y is not None else "N/A")
+                        with _k3:
+                            kpi_card("📉", "Years of Cuts", str(_neg_yrs))
+                        with _k4:
+                            kpi_card("💵", "FCF Payout Ratio", f"{min(_fcf_payout, 999):.0f}%" if _fcf_payout is not None else "N/A")
+
+                        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+
+                        # ── Score gauge + component breakdown ─────────────────
+                        _gs1, _gs2 = st.columns([1, 2])
+                        with _gs1:
+                            _gc  = "#1E8449" if _con_score >= 65 else "#B7770D" if _con_score >= 40 else "#C0392B"
+                            _gfig = go.Figure(go.Indicator(
+                                mode="gauge+number", value=_con_score,
+                                number={"suffix": "/100", "font": {"size": 26, "color": _gc}},
+                                title={"text": "Consistency Score", "font": {"size": 13, "color": "#555"}},
+                                gauge={
+                                    "axis": {"range": [0, 100], "tickcolor": "#aaa"},
+                                    "bar":  {"color": _gc, "thickness": 0.28},
+                                    "bgcolor": "white", "borderwidth": 0,
+                                    "steps": [{"range": [0,  35], "color": "#fde8e8"},
+                                              {"range": [35, 65], "color": "#fef9e7"},
+                                              {"range": [65,100], "color": "#eafaf1"}]
+                                }
+                            ))
+                            _gfig.update_layout(height=230, margin=dict(t=30, b=5, l=20, r=20), paper_bgcolor="white")
+                            st.plotly_chart(_gfig, use_container_width=True)
+                            st.markdown(
+                                f"<div style='text-align:center;font-size:0.9rem;font-weight:700;"
+                                f"color:{_rcol};margin-top:-14px;'>{_rating}</div>",
+                                unsafe_allow_html=True
+                            )
+
+                        with _gs2:
+                            def _dct_bar(s, mx, c):
+                                p = int(s / mx * 100)
+                                return (
+                                    f"<div style='background:#e8edf2;border-radius:4px;height:7px;width:100%;'>"
+                                    f"<div style='background:{c};width:{p}%;height:7px;border-radius:4px;'></div></div>"
+                                )
+
+                            _sc_rows = [
+                                ("Longevity",     _sc_lon, 25,
+                                 "#1E8449" if _sc_lon >= 17.5 else "#B7770D" if _sc_lon >= 10 else "#C0392B"),
+                                ("Growth (CAGR)", _sc_grw, 25,
+                                 "#1E8449" if _sc_grw >= 17.5 else "#B7770D" if _sc_grw >= 10 else "#C0392B"),
+                                ("Reliability",   _sc_rel, 25,
+                                 "#1E8449" if _sc_rel >= 17.5 else "#B7770D" if _sc_rel >= 10 else "#C0392B"),
+                                ("FCF Coverage",  _sc_fcf, 25,
+                                 "#1E8449" if _sc_fcf >= 17.5 else "#B7770D" if _sc_fcf >= 10 else "#C0392B"),
+                            ]
+                            _sc_tbl = (
+                                "<table style='width:100%;border-collapse:collapse;font-size:0.82rem;margin-top:10px;'>"
+                                "<tr>"
+                                "<th style='text-align:left;color:#4a6a8a;padding:3px 8px;font-weight:600;'>Component</th>"
+                                "<th style='text-align:right;color:#4a6a8a;padding:3px 8px;'>Score</th>"
+                                "<th style='text-align:right;color:#4a6a8a;padding:3px 8px;'>Max</th>"
+                                "<th style='padding:3px 8px;width:38%;'></th>"
+                                "</tr>"
+                            )
+                            for _rl, _rs, _rm, _rc in _sc_rows:
+                                _sc_tbl += (
+                                    f"<tr>"
+                                    f"<td style='padding:7px 8px;color:#1a2a3a;font-weight:600;'>{_rl}</td>"
+                                    f"<td style='text-align:right;padding:7px 8px;color:{_rc};font-weight:700;'>{_rs:.1f}</td>"
+                                    f"<td style='text-align:right;padding:7px 8px;color:#4a6a8a;'>{_rm}</td>"
+                                    f"<td style='padding:7px 10px;vertical-align:middle;'>{_dct_bar(_rs, _rm, _rc)}</td>"
+                                    f"</tr>"
+                                )
+                            _sc_tbl += "</table>"
+                            st.markdown(_sc_tbl, unsafe_allow_html=True)
+
+                            # ── Narrative ─────────────────────────────────────
+                            st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+                            if _longevity >= 10:
+                                st.markdown(f"• **{_longevity}-year** uninterrupted payment record signals strong institutional commitment to the dividend.")
+                            elif _longevity >= 5:
+                                st.markdown(f"• **{_longevity}-year** payment history is moderate; watch consistency across full business cycles.")
+                            else:
+                                st.markdown(f"• Only **{_longevity} year{'s' if _longevity != 1 else ''}** of history — too short to establish a reliable track record.")
+
+                            if _cagr_5y is not None:
+                                if _cagr_5y >= 5:
+                                    st.markdown(f"• 5Y CAGR of **{_cagr_5y:.1f}%** — dividend growing well above inflation.")
+                                elif _cagr_5y >= 0:
+                                    st.markdown(f"• 5Y CAGR of **{_cagr_5y:.1f}%** — positive but modest; review whether growth keeps pace with inflation.")
+                                else:
+                                    st.markdown(f"• 5Y CAGR of **{_cagr_5y:.1f}%** — dividend eroding; verify against latest management guidance.")
+                            elif _cagr_all is not None:
+                                st.markdown(f"• Full-history CAGR of **{_cagr_all:.1f}%** (fewer than 5 complete years of data).")
+
+                            if _neg_yrs > 0:
+                                st.markdown(f"• **{_neg_yrs} cut{'s' if _neg_yrs != 1 else ''}** recorded over {_n_yrs} years; review timing against macro downturns or restructuring events.")
+                            else:
+                                st.markdown("• No dividend cuts recorded over the available history.")
+
+                            if _fcf_payout is not None:
+                                if _fcf_payout <= 60:
+                                    st.markdown(f"• FCF payout of **{_fcf_payout:.0f}%** — dividends are comfortably covered by free cash flow.")
+                                elif _fcf_payout <= 100:
+                                    st.markdown(f"• FCF payout of **{_fcf_payout:.0f}%** is elevated; monitor cash generation for sustainability risks.")
+                                else:
+                                    st.markdown(f"• FCF payout of **{_fcf_payout:.0f}%** exceeds free cash flow — the dividend may not be self-funding from operations.")
+                            else:
+                                st.markdown("• FCF payout ratio unavailable — verify dividend sustainability from the latest annual report.")
+
+                        # ── Side-by-side charts ───────────────────────────────
+                        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+                        _cc1, _cc2 = st.columns(2)
+                        with _cc1:
+                            _ann_mean = float(_annual_div.mean())
+                            _af = go.Figure(go.Bar(
+                                x=[str(y) for y in _annual_div.index],
+                                y=_annual_div.values,
+                                marker_color=["#27AE60" if v >= _ann_mean else "#3498DB" for v in _annual_div.values],
+                                text=[f"S${v:.3f}" for v in _annual_div.values],
+                                textposition="outside",
+                            ))
+                            _af.update_layout(
+                                title=dict(text=f"Annual Dividends Per Share — {_dct_stock}", font=dict(size=12)),
+                                template="plotly_white", height=320,
+                                xaxis=dict(title="Year", tickangle=-45),
+                                yaxis=dict(title="DPS (S$)"),
+                                margin=dict(t=50, b=50, l=10, r=10),
+                                showlegend=False
+                            )
+                            st.plotly_chart(_af, use_container_width=True)
+
+                        with _cc2:
+                            if not _yoy_val.empty:
+                                _yf2 = go.Figure(go.Bar(
+                                    x=[str(y) for y in _yoy_val.index],
+                                    y=_yoy_val.values,
+                                    marker_color=["#27AE60" if v >= 0 else "#E74C3C" for v in _yoy_val.values],
+                                    text=[f"{v:+.1f}%" for v in _yoy_val.values],
+                                    textposition="outside",
+                                ))
+                                _yf2.add_hline(y=0, line_dash="dash", line_color="#bbb", line_width=1)
+                                _yf2.update_layout(
+                                    title=dict(text="Year-on-Year Dividend Growth (%)", font=dict(size=12)),
+                                    template="plotly_white", height=320,
+                                    xaxis=dict(title="Year", tickangle=-45),
+                                    yaxis=dict(title="Growth (%)"),
+                                    margin=dict(t=50, b=50, l=10, r=10),
+                                    showlegend=False
+                                )
+                                st.plotly_chart(_yf2, use_container_width=True)
+
+                        # ── Annual history table ──────────────────────────────
+                        st.markdown("#### Annual Dividend History")
+                        _hist_rows = []
+                        for _yr in sorted(_annual_div.index, reverse=True):
+                            _dv   = float(_annual_div[_yr])
+                            _pv   = float(_annual_div[_yr - 1]) if (_yr - 1) in _annual_div.index else None
+                            _chg  = round(_dv - _pv, 4) if _pv is not None else None
+                            _cpct = round(_chg / _pv * 100, 1) if (_chg is not None and _pv and _pv > 0) else None
+                            _pmts = int((_div_raw.index.year == _yr).sum())
+                            _hist_rows.append({
+                                "Year":            str(_yr),
+                                "Annual DPS (S$)": round(_dv, 4),
+                                "No. of Payments": _pmts,
+                                "YoY Change (S$)": _chg,
+                                "YoY Growth (%)":  _cpct,
+                            })
+                        _hist_df = pd.DataFrame(_hist_rows)
+
+                        def _col_yoy(val):
+                            if not isinstance(val, (int, float)) or pd.isna(val): return ''
+                            if val > 0: return 'color:#1E8449;font-weight:700;'
+                            if val < 0: return 'color:#C0392B;font-weight:700;'
+                            return 'color:#888;'
+
+                        st.dataframe(
+                            _hist_df.style
+                                .format({
+                                    "Annual DPS (S$)": "S${:.4f}",
+                                    "YoY Change (S$)": lambda x: f"S${x:+.4f}" if isinstance(x, float) else "—",
+                                    "YoY Growth (%)":  lambda x: f"{x:+.1f}%"  if isinstance(x, float) else "—",
+                                })
+                                .map(_col_yoy, subset=["YoY Growth (%)", "YoY Change (S$)"]),
+                            hide_index=True, use_container_width=True
+                        )
+                        if _fcf_note:
+                            st.caption(f"FCF payout source: {_fcf_note}.")
 
         # ══════════════════════════════════════════
         # TAB 7 — PORTFOLIO OPTIMISATION
@@ -2538,7 +2994,7 @@ else:
     st.markdown("""
     <div style='text-align:center; padding: 40px 0 10px 0;'>
       <div style='font-size:3.5rem;'>🏦</div>
-      <h1 style='color:#0d2240; font-size:2rem; font-weight:700; margin:12px 0 6px 0;'>CLP Wealth Center</h1>
+      <h1 style='color:#0d2240; font-size:2rem; font-weight:700; margin:12px 0 6px 0;'>CDP Wealth Center</h1>
       <p style='color:#6b7f9e; font-size:1rem; max-width:540px; margin:0 auto;'>
         Your personal portfolio intelligence platform. Upload a CDP statement PDF to unlock
         nine analytical modules — from sector analysis and income tracking to risk metrics,
@@ -2560,5 +3016,20 @@ else:
       <div style='font-size:1.4rem; margin-bottom:8px;'>⬆️</div>
       <p style='color:#0d2240; font-weight:600; margin:0 0 4px 0;'>Get started</p>
       <p style='color:#6b7f9e; font-size:0.88rem; margin:0;'>Use the <strong>Upload CDP Portfolio Statement</strong> button in the sidebar to begin.</p>
+    </div>
+    <div style='margin-top:32px; padding:18px 22px; background:#fff8f0; border:1px solid #f5cba7;
+                border-radius:10px; border-left:4px solid #e67e22;'>
+      <p style='margin:0 0 6px 0; font-size:0.82rem; font-weight:700; color:#784212;'>⚠️ Important Disclaimer</p>
+      <p style='margin:0; font-size:0.78rem; color:#6e4a1e; line-height:1.6;'>
+        CDP Wealth Center is provided for informational and educational purposes only.
+        Nothing in this application constitutes financial advice, investment advice, or a recommendation to buy, sell, or hold
+        any security or financial product. All analytics, projections, and estimates are based on historical data and
+        user-supplied inputs, which may be incomplete, delayed, or inaccurate.
+        <strong>Past performance is not indicative of future results.</strong>
+        You are solely responsible for all investment decisions you make.
+        The developer of this application accepts no liability whatsoever for any financial loss, damage, or adverse outcome
+        arising directly or indirectly from the use of this app.
+        <strong>Always seek independent advice from a licensed financial adviser before making any investment decision.</strong>
+      </p>
     </div>
     """, unsafe_allow_html=True)
