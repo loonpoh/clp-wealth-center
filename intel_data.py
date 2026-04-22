@@ -285,7 +285,7 @@ MASTER_INTEL = {
     "Luminor": {"Rate": 0.00, "PB": 0.00, "Ticker": "5UA", "Sector": "Financial Services"},
     "Net Pac Hldgs": {"Rate": 0.00, "PB": 0.00, "Ticker": "5QY", "Sector": "Financial Services"},
     "Nomura Yen1k": {"Rate": 0.00, "PB": 0.00, "Ticker": "N33", "Sector": "Financial Services"},
-    "OCBC Bank": {"Rate": 0.86, "PB": 1.18, "Ticker": "O39", "Sector": "Financial Services"},
+    "OCBC Bank": {"Rate": 0.99, "PB": 1.18, "Ticker": "O39", "Sector": "Financial Services"},
     "Pacific Century": {"Rate": 0.00, "PB": 0.00, "Ticker": "P15", "Sector": "Financial Services"},
     "Prudential USD": {"Rate": 0.00, "PB": 0.00, "Ticker": "K6S", "Sector": "Financial Services"},
     "SGX": {"Rate": 0.00, "PB": 0.00, "Ticker": "S68", "Sector": "Financial Services"},

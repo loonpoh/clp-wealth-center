@@ -18,6 +18,16 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 
+/* Reduce default Streamlit top padding */
+.block-container {
+    padding-top: 0.8rem !important;
+    padding-bottom: 1rem !important;
+}
+header[data-testid="stHeader"] {
+    height: 0 !important;
+    min-height: 0 !important;
+}
+
 section[data-testid="stSidebar"] {
     background: linear-gradient(180deg, #071428 0%, #0d2240 60%, #0a1a35 100%);
 }
@@ -660,6 +670,86 @@ st.sidebar.markdown(
     unsafe_allow_html=True
 )
 
+# --- 5b. HEADER BANNER ---
+st.markdown("""
+<div style='width:100%;background:linear-gradient(135deg,#071428 0%,#0d2240 55%,#0a1e3d 100%);
+            border-radius:12px;padding:14px 24px;margin-bottom:12px;
+            border:1px solid #1a3a6b;box-shadow:0 4px 18px rgba(0,0,0,0.35);
+            position:relative;overflow:hidden;'>
+
+  <!-- Candlestick & trend chart (right-side watermark) -->
+  <svg style='position:absolute;right:0;top:0;width:48%;height:100%;'
+       viewBox='0 0 420 130' preserveAspectRatio='xMaxYMid slice'>
+    <defs>
+      <linearGradient id='hbFill' x1='0' y1='0' x2='0' y2='1'>
+        <stop offset='0%'  stop-color='#f0b429' stop-opacity='0.18'/>
+        <stop offset='100%' stop-color='#f0b429' stop-opacity='0'/>
+      </linearGradient>
+      <linearGradient id='hbFade' x1='0' y1='0' x2='1' y2='0'>
+        <stop offset='0%'  stop-color='#0d2240' stop-opacity='1'/>
+        <stop offset='30%' stop-color='#0d2240' stop-opacity='0'/>
+      </linearGradient>
+    </defs>
+    <!-- Subtle grid -->
+    <line x1='0' y1='32'  x2='420' y2='32'  stroke='#1a3a6b' stroke-width='1'/>
+    <line x1='0' y1='65'  x2='420' y2='65'  stroke='#1a3a6b' stroke-width='1'/>
+    <line x1='0' y1='98'  x2='420' y2='98'  stroke='#1a3a6b' stroke-width='1'/>
+    <line x1='72'  y1='0' x2='72'  y2='130' stroke='#1a3a6b' stroke-width='1'/>
+    <line x1='162' y1='0' x2='162' y2='130' stroke='#1a3a6b' stroke-width='1'/>
+    <line x1='252' y1='0' x2='252' y2='130' stroke='#1a3a6b' stroke-width='1'/>
+    <line x1='342' y1='0' x2='342' y2='130' stroke='#1a3a6b' stroke-width='1'/>
+    <!-- Candlestick bodies + wicks (bear=red, bull=green, last=gold) -->
+    <line x1='22' y1='72' x2='22' y2='112' stroke='#e74c3c' stroke-width='1.5' opacity='0.65'/>
+    <rect x='16' y='80' width='12' height='25' rx='2' fill='#e74c3c' opacity='0.65'/>
+    <line x1='50' y1='58' x2='50' y2='94'  stroke='#2ecc71' stroke-width='1.5' opacity='0.65'/>
+    <rect x='44' y='63' width='12' height='22' rx='2' fill='#2ecc71' opacity='0.65'/>
+    <line x1='78' y1='50' x2='78' y2='83'  stroke='#2ecc71' stroke-width='1.5' opacity='0.65'/>
+    <rect x='72' y='55' width='12' height='20' rx='2' fill='#2ecc71' opacity='0.65'/>
+    <line x1='106' y1='64' x2='106' y2='102' stroke='#e74c3c' stroke-width='1.5' opacity='0.65'/>
+    <rect x='100' y='70' width='12' height='26' rx='2' fill='#e74c3c' opacity='0.65'/>
+    <line x1='134' y1='46' x2='134' y2='80'  stroke='#2ecc71' stroke-width='1.5' opacity='0.65'/>
+    <rect x='128' y='52' width='12' height='20' rx='2' fill='#2ecc71' opacity='0.65'/>
+    <line x1='162' y1='38' x2='162' y2='68'  stroke='#2ecc71' stroke-width='1.5' opacity='0.65'/>
+    <rect x='156' y='43' width='12' height='18' rx='2' fill='#2ecc71' opacity='0.65'/>
+    <line x1='190' y1='52' x2='190' y2='84'  stroke='#e74c3c' stroke-width='1.5' opacity='0.65'/>
+    <rect x='184' y='57' width='12' height='22' rx='2' fill='#e74c3c' opacity='0.65'/>
+    <line x1='218' y1='32' x2='218' y2='62'  stroke='#2ecc71' stroke-width='1.5' opacity='0.65'/>
+    <rect x='212' y='37' width='12' height='18' rx='2' fill='#2ecc71' opacity='0.65'/>
+    <line x1='246' y1='24' x2='246' y2='54'  stroke='#2ecc71' stroke-width='1.5' opacity='0.65'/>
+    <rect x='240' y='28' width='12' height='18' rx='2' fill='#2ecc71' opacity='0.65'/>
+    <line x1='274' y1='40' x2='274' y2='72'  stroke='#e74c3c' stroke-width='1.5' opacity='0.65'/>
+    <rect x='268' y='45' width='12' height='22' rx='2' fill='#e74c3c' opacity='0.65'/>
+    <line x1='302' y1='18' x2='302' y2='48'  stroke='#2ecc71' stroke-width='1.5' opacity='0.65'/>
+    <rect x='296' y='22' width='12' height='18' rx='2' fill='#2ecc71' opacity='0.65'/>
+    <line x1='330' y1='14' x2='330' y2='42'  stroke='#2ecc71' stroke-width='1.5' opacity='0.65'/>
+    <rect x='324' y='18' width='12' height='16' rx='2' fill='#2ecc71' opacity='0.65'/>
+    <line x1='358' y1='8'  x2='358' y2='36'  stroke='#f0b429' stroke-width='1.5' opacity='0.85'/>
+    <rect x='352' y='12' width='12' height='17' rx='2' fill='#f0b429' opacity='0.85'/>
+    <!-- Rising trend line -->
+    <polygon points='22,105 50,80 78,67 106,88 134,63 162,52 190,70 218,48 246,37 274,57 302,29 330,22 358,18 420,10 420,130 22,130'
+             fill='url(#hbFill)'/>
+    <polyline points='22,105 50,80 78,67 106,88 134,63 162,52 190,70 218,48 246,37 274,57 302,29 330,22 358,18'
+              fill='none' stroke='#f0b429' stroke-width='2.5' stroke-linejoin='round' opacity='0.92'/>
+    <!-- Dot at last candle -->
+    <circle cx='358' cy='18' r='5' fill='#f0b429' opacity='0.95'/>
+    <circle cx='358' cy='18' r='9' fill='none' stroke='#f0b429' stroke-width='1.5' opacity='0.40'/>
+    <!-- Left-side fade overlay so the chart blends into the text area -->
+    <rect x='0' y='0' width='420' height='130' fill='url(#hbFade)'/>
+  </svg>
+
+  <!-- Branding row (single line, no chips) -->
+  <div style='position:relative;z-index:2;display:flex;align-items:center;gap:12px;'>
+    <div style='font-size:2rem;line-height:1;'>🏦</div>
+    <div>
+      <div style='font-size:1.25rem;font-weight:800;color:#f0b429;letter-spacing:0.4px;line-height:1.2;'>CDP Wealth Center</div>
+      <div style='font-size:0.72rem;color:#8fa8cc;letter-spacing:0.3px;margin-top:2px;white-space:nowrap;'>
+        SGX Portfolio Intelligence &nbsp;·&nbsp; Dividend Analytics &nbsp;·&nbsp; Risk Engineering
+      </div>
+    </div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
 # --- 6. TABS ---
 t1, t2, t3, t4, t5, t6, t7, t8, t9 = st.tabs([
     "📊 Discovery", "📈 Benchmark", "📂 Holdings",
@@ -724,39 +814,6 @@ if uploaded_file:
         sel_sects = st.sidebar.multiselect("Filter Analysis Universe", all_sects, default=all_sects)
         df = df_raw[df_raw['Sector'].isin(sel_sects)].copy()
 
-        # ── Unknown-stock supplemental data UI ───────────────────────
-        unknown_stocks = df[df['Known'] == False]['Security'].tolist() if 'Known' in df.columns else []
-        if unknown_stocks:
-            with st.sidebar.expander(f"🔍 Enrich {len(unknown_stocks)} Unknown Stock(s)", expanded=True):
-                st.markdown(
-                    "<small>These holdings were not found in the built-in database. "
-                    "Enter a Yahoo Finance ticker (e.g. <code>BN4.SI</code>) to fetch live DPS data, "
-                    "or enter a DPS manually.</small>",
-                    unsafe_allow_html=True,
-                )
-                for stk in unknown_stocks:
-                    st.markdown(f"**{stk}**")
-                    col_t, col_d = st.columns([3, 2])
-                    ticker_key = f"supp_ticker_{stk}"
-                    dps_key = f"supp_dps_{stk}"
-                    fetch_key = f"supp_fetched_{stk}"
-                    with col_t:
-                        ticker_input = st.text_input("Ticker", key=ticker_key,
-                                                     placeholder="e.g. BN4.SI",
-                                                     label_visibility="collapsed")
-                    if ticker_input and ticker_input != st.session_state.get(fetch_key, ""):
-                        auto_dps = fetch_annual_dps(ticker_input)
-                        st.session_state[dps_key] = auto_dps
-                        st.session_state[fetch_key] = ticker_input
-                        # also store ticker for downstream tab use
-                        st.session_state[f"supp_ticker_val_{stk}"] = ticker_input
-                    with col_d:
-                        dps_default = st.session_state.get(dps_key, 0.0)
-                        dps_override = st.number_input("DPS (S$)", key=f"supp_dps_input_{stk}",
-                                                        min_value=0.0, step=0.01,
-                                                        value=float(dps_default),
-                                                        label_visibility="collapsed")
-                        st.session_state[dps_key] = dps_override
 
         # Apply session_state DPS overrides and ticker enrichment to df
         if 'Known' in df.columns:
@@ -1270,209 +1327,341 @@ if uploaded_file:
                 _total_alloc_display = sum(_alloc_pcts.values())
                 if abs(_total_alloc_display - 100.0) > 0.5:
                     st.warning(f"⚠️ Allocations sum to {_total_alloc_display:.1f}% — will be normalised proportionally on simulation.")
+            # ── COMPUTATION: runs only on button click, persists to session state ──
             if st.button("🔄 Execute Simulation"):
                 if not sim_sell or not sim_buy:
                     st.warning("⚠️ Please select at least one asset to sell and one to buy.")
                 else:
-                    curr_aum = total_aum
-                    curr_inc = df['Annual Dividend (SGD)'].sum()
-                    curr_yield = (curr_inc / curr_aum) * 100 if curr_aum > 0 else 0
-                    df_sell = df[df['Security'].isin(sim_sell)]
-                    freed_capital = df_sell['AUM (SGD)'].sum()
-                    lost_income = df_sell['Annual Dividend (SGD)'].sum()
-                    new_income_added = 0
-                    _sim_total_alloc = sum(_alloc_pcts.values()) or 1.0
-                    _capital_alloc = {b: freed_capital * (_alloc_pcts.get(b, 0) / _sim_total_alloc) for b in sim_buy}
+                    _c_aum   = total_aum
+                    _c_inc   = df['Annual Dividend (SGD)'].sum()
+                    _c_yield = (_c_inc / _c_aum) * 100 if _c_aum > 0 else 0
+                    _df_sell = df[df['Security'].isin(sim_sell)]
+                    _freed   = _df_sell['AUM (SGD)'].sum()
+                    _lost_inc = _df_sell['Annual Dividend (SGD)'].sum()
+                    _new_inc_added = 0
+                    _sta = sum(_alloc_pcts.values()) or 1.0
+                    _cap_alloc = {b: _freed * (_alloc_pcts.get(b, 0) / _sta) for b in sim_buy}
                     with st.spinner("Fetching live market yields for acquisition targets..."):
                         for b in sim_buy:
-                            _b_capital = _capital_alloc[b]
+                            _bc = _cap_alloc[b]
                             if b in df['Security'].values:
-                                tick = df[df['Security'] == b]['Ticker'].iloc[0]
-                                dps = df[df['Security'] == b]['DPS'].iloc[0]
+                                _bt = df[df['Security'] == b]['Ticker'].iloc[0]
+                                _bd = df[df['Security'] == b]['DPS'].iloc[0]
                             else:
-                                _mi = MASTER_INTEL.get(b, {})
-                                tick = _mi.get('Ticker')
-                                dps = _mi.get('Rate', 0)
+                                _bmi = MASTER_INTEL.get(b, {})
+                                _bt  = _bmi.get('Ticker')
+                                _bd  = _bmi.get('Rate', 0)
                             try:
-                                if pd.notnull(tick):
-                                    h = yf.download(_si(tick), period="5d", progress=False)
-                                    c = h['Close'].iloc[:, 0] if isinstance(h['Close'], pd.DataFrame) else h['Close']
-                                    new_income_added += _b_capital * (dps / float(c.iloc[-1]))
+                                if pd.notnull(_bt):
+                                    _bh = yf.download(_si(_bt), period="5d", progress=False)
+                                    _bc2 = _bh['Close'].iloc[:, 0] if isinstance(_bh['Close'], pd.DataFrame) else _bh['Close']
+                                    _new_inc_added += _bc * (_bd / float(_bc2.iloc[-1]))
                                 else:
-                                    new_income_added += _b_capital * 0.04
+                                    _new_inc_added += _bc * 0.04
                             except Exception:
-                                new_income_added += _b_capital * 0.04
-                    new_aum = curr_aum
-                    new_inc = curr_inc - lost_income + new_income_added
-                    new_yield = (new_inc / new_aum) * 100
-                    st.success(f"**Simulation Complete:** S${freed_capital:,.2f} recycled from {len(sim_sell)} asset{'s' if len(sim_sell) != 1 else ''} into {len(sim_buy)} asset{'s' if len(sim_buy) != 1 else ''}.")
-                    st.markdown('<div class="hide-delta">', unsafe_allow_html=True)
-                    r1, r2, r3 = st.columns(3)
-                    r1.metric("Projected AUM (Excl. Fees)", f"S${new_aum:,.2f}", "S$0.00 (Neutral)")
-                    r2.metric("Projected Annual Income", f"S${new_inc:,.2f}", f"S${new_inc - curr_inc:+,.2f} / year")
-                    r3.metric("Projected Portfolio Yield", f"{new_yield:.2f}%", f"{new_yield - curr_yield:+.2f}% shift")
-                    st.markdown('</div>', unsafe_allow_html=True)
-                    st.markdown("#### Before vs After Comparison")
-                    fig_ba = go.Figure()
-                    fig_ba.add_trace(go.Bar(name="Current", x=["Annual Income (SGD)", "Portfolio Yield (%)"],
-                                            y=[curr_inc, curr_yield], marker_color="#95A5A6",
-                                            text=[f"S${curr_inc:,.0f}", f"{curr_yield:.2f}%"], textposition="outside"))
-                    fig_ba.add_trace(go.Bar(name="Projected", x=["Annual Income (SGD)", "Portfolio Yield (%)"],
-                                            y=[new_inc, new_yield], marker_color="#27AE60",
-                                            text=[f"S${new_inc:,.0f}", f"{new_yield:.2f}%"], textposition="outside"))
-                    fig_ba.update_layout(barmode="group", template="plotly_white", height=360,
-                                         legend=dict(orientation="h", y=1.1), margin=dict(t=30, b=20, l=20, r=20),
-                                         yaxis=dict(showticklabels=False, showgrid=False))
-                    st.plotly_chart(fig_ba, use_container_width=True)
+                                _new_inc_added += _bc * 0.04
+                    _n_aum   = _c_aum
+                    _n_inc   = _c_inc - _lost_inc + _new_inc_added
+                    _n_yield = (_n_inc / _n_aum) * 100
+                    _di      = _n_inc - _c_inc
+                    _dy      = _n_yield - _c_yield
 
-                    # ── QUANTITATIVE RISK METRICS BEFORE vs AFTER ─────────────────────
-                    st.markdown("#### 📊 Quantitative Risk Metrics — Before vs After Rebalance")
+                    # ── Risk metrics computation ──────────────────────────────
                     _elig_sim = df[df['Ticker'].notnull()].copy()
+                    _rh = ""
+                    _rmc = {}
                     if not _elig_sim.empty:
-                        _tickers_b = ",".join(_elig_sim['Ticker'].tolist())
-                        _names_b   = "|".join(_elig_sim['Security'].tolist())
-                        _df_after  = _elig_sim[~_elig_sim['Security'].isin(sim_sell)].copy()
+                        _tb = ",".join(_elig_sim['Ticker'].tolist())
+                        _nb = "|".join(_elig_sim['Security'].tolist())
+                        _dfa = _elig_sim[~_elig_sim['Security'].isin(sim_sell)].copy()
                         for _ba in sim_buy_curr:
-                            _m = _df_after['Security'] == _ba
-                            if _m.any():
-                                _df_after.loc[_m, 'AUM (SGD)'] = _df_after.loc[_m, 'AUM (SGD)'] + _capital_alloc.get(_ba, 0)
+                            _mm = _dfa['Security'] == _ba
+                            if _mm.any():
+                                _dfa.loc[_mm, 'AUM (SGD)'] = _dfa.loc[_mm, 'AUM (SGD)'] + _cap_alloc.get(_ba, 0)
                         for _ba in sim_buy_new:
-                            _mi_new = MASTER_INTEL.get(_ba, {})
-                            _new_tick = _mi_new.get('Ticker')
-                            if _new_tick:
-                                _new_row = pd.DataFrame([{'Security': _ba, 'Ticker': _new_tick, 'AUM (SGD)': _capital_alloc.get(_ba, 0)}])
-                                _df_after = pd.concat([_df_after, _new_row], ignore_index=True)
-                        if not _df_after.empty:
-                            _tickers_a = ",".join(_df_after['Ticker'].tolist())
-                            _names_a   = "|".join(_df_after['Security'].tolist())
+                            _mni = MASTER_INTEL.get(_ba, {})
+                            _mnt = _mni.get('Ticker')
+                            if _mnt:
+                                _mnr = pd.DataFrame([{'Security': _ba, 'Ticker': _mnt, 'AUM (SGD)': _cap_alloc.get(_ba, 0)}])
+                                _dfa = pd.concat([_dfa, _mnr], ignore_index=True)
+                        if not _dfa.empty:
+                            _ta = ",".join(_dfa['Ticker'].tolist())
+                            _na = "|".join(_dfa['Security'].tolist())
                             with st.spinner("Computing risk metrics for simulation..."):
-                                _rm_b = compute_risk_metrics(_tickers_b, _names_b)
-                                _rm_a = compute_risk_metrics(_tickers_a, _names_a)
-                            if not _rm_b.empty and not _rm_a.empty:
-                                _rm_b = _rm_b.merge(_elig_sim[['Security', 'AUM (SGD)']], on='Security', how='left')
-                                _rm_a = _rm_a.merge(_df_after[['Security', 'AUM (SGD)']], on='Security', how='left')
+                                _rmb = compute_risk_metrics(_tb, _nb)
+                                _rma = compute_risk_metrics(_ta, _na)
+                            if not _rmb.empty and not _rma.empty:
+                                _rmb = _rmb.merge(_elig_sim[['Security', 'AUM (SGD)']], on='Security', how='left')
+                                _rma = _rma.merge(_dfa[['Security', 'AUM (SGD)']], on='Security', how='left')
 
-                                def _wavg(rdf, col):
+                                def _ww(rdf, col):
                                     v = rdf.dropna(subset=[col, 'AUM (SGD)'])
                                     if v.empty: return None
                                     return float((v[col] * v['AUM (SGD)']).sum() / v['AUM (SGD)'].sum())
 
-                                def _dvar_sum(rdf):
+                                def _dvs(rdf):
                                     v = rdf.dropna(subset=['Daily VaR 95% (%)', 'AUM (SGD)'])
                                     return float((v['Daily VaR 95% (%)'].abs() / 100 * v['AUM (SGD)']).sum()) if not v.empty else None
 
-                                def _risk_row(icon, label, b_str, a_str, d_str, is_good, is_bad):
-                                    if is_good:
-                                        dc, arr = "#2ecc71", "▲"
-                                    elif is_bad:
-                                        dc, arr = "#e74c3c", "▼"
-                                    else:
-                                        dc, arr = "#8fa8cc", "◆"
-                                    return (
-                                        f"<tr style='border-bottom:1px solid #1a3354;'>"
-                                        f"<td style='padding:9px 14px;font-weight:600;color:#dce8f5;white-space:nowrap;'>{icon}&nbsp;{label}</td>"
-                                        f"<td style='padding:9px 14px;text-align:center;color:#8fa8cc;'>{b_str}</td>"
-                                        f"<td style='padding:9px 14px;text-align:center;color:#f0d060;font-weight:700;'>{a_str}</td>"
-                                        f"<td style='padding:9px 14px;text-align:center;color:{dc};font-weight:700;'>{arr}&nbsp;{d_str}</td>"
-                                        f"</tr>"
-                                    )
+                                def _rrow(icon, label, b_str, a_str, d_str, is_good, is_bad):
+                                    dc, arr = ("#2ecc71", "▲") if is_good else ("#e74c3c", "▼") if is_bad else ("#8fa8cc", "◆")
+                                    return (f"<tr style='border-bottom:1px solid #1a3354;'>"
+                                            f"<td style='padding:9px 14px;font-weight:600;color:#dce8f5;white-space:nowrap;'>{icon}&nbsp;{label}</td>"
+                                            f"<td style='padding:9px 14px;text-align:center;color:#8fa8cc;'>{b_str}</td>"
+                                            f"<td style='padding:9px 14px;text-align:center;color:#f0d060;font-weight:700;'>{a_str}</td>"
+                                            f"<td style='padding:9px 14px;text-align:center;color:{dc};font-weight:700;'>{arr}&nbsp;{d_str}</td>"
+                                            f"</tr>")
 
-                                def _section_sep(title):
-                                    return (
-                                        f"<tr><td colspan='4' style='padding:5px 14px 3px;background:#0c1e33;"
-                                        f"font-size:0.7rem;color:#4a6a8a;text-transform:uppercase;"
-                                        f"letter-spacing:0.08em;font-weight:700;'>{title}</td></tr>"
-                                    )
+                                def _rsep(title):
+                                    return (f"<tr><td colspan='4' style='padding:5px 14px 3px;background:#0c1e33;"
+                                            f"font-size:0.7rem;color:#4a6a8a;text-transform:uppercase;"
+                                            f"letter-spacing:0.08em;font-weight:700;'>{title}</td></tr>")
 
-                                _rows_html = ""
-                                # ── Income & Yield ─────────────────────
-                                _rows_html += _section_sep("Income Impact")
-                                _d_inc = new_inc - curr_inc
-                                _d_yld = new_yield - curr_yield
-                                _rows_html += _risk_row("💵", "Annual Income (SGD)",
-                                    f"S${curr_inc:,.0f}", f"S${new_inc:,.0f}",
-                                    f"S${abs(_d_inc):,.0f}", _d_inc > 0, _d_inc < 0)
-                                _rows_html += _risk_row("📊", "Portfolio Yield",
-                                    f"{curr_yield:.2f}%", f"{new_yield:.2f}%",
-                                    f"{abs(_d_yld):.2f}%", _d_yld > 0, _d_yld < 0)
-
-                                # ── Risk Metrics ───────────────────────
-                                _rows_html += _section_sep("Risk Metrics — AUM-weighted averages")
-                                _spec = [
-                                    ("📈", "Ann. Return",      "Ann. Return (%)",     "%",  False, False),
-                                    ("📉", "Ann. Volatility",  "Ann. Volatility (%)", "%",  False, True),
-                                    ("⚡", "Sharpe Ratio",     "Sharpe Ratio",        "×",  False, False),
-                                    ("📐", "Beta (vs STI)",    "Beta (vs STI)",       "×",  False, None),
-                                    ("⚠️", "Daily VaR 95%",   "Daily VaR 95% (%)",  "%",  True,  True),
-                                    ("🕳️", "Max Drawdown",    "Max Drawdown (%)",    "%",  True,  True),
+                                _rh += _rsep("Income Impact")
+                                _rh += _rrow("💵", "Annual Income (SGD)", f"S${_c_inc:,.0f}", f"S${_n_inc:,.0f}", f"S${abs(_di):,.0f}", _di > 0, _di < 0)
+                                _rh += _rrow("📊", "Portfolio Yield", f"{_c_yield:.2f}%", f"{_n_yield:.2f}%", f"{abs(_dy):.2f}%", _dy > 0, _dy < 0)
+                                _rh += _rsep("Risk Metrics — AUM-weighted averages")
+                                _rspec = [
+                                    ("📈", "Ann. Return",     "Ann. Return (%)",     "%", False, False),
+                                    ("📉", "Ann. Volatility", "Ann. Volatility (%)", "%", False, True),
+                                    ("⚡", "Sharpe Ratio",    "Sharpe Ratio",        "×", False, False),
+                                    ("📐", "Beta (vs STI)",   "Beta (vs STI)",       "×", False, None),
+                                    ("⚠️", "Daily VaR 95%",  "Daily VaR 95% (%)",  "%", True,  True),
+                                    ("🕳️", "Max Drawdown",   "Max Drawdown (%)",    "%", True,  True),
                                 ]
-                                for _ico, _lbl, _col, _unit, _abs, _lower in _spec:
-                                    _bv = _wavg(_rm_b, _col)
-                                    _av = _wavg(_rm_a, _col)
-                                    if _bv is None or _av is None:
-                                        continue
-                                    _bvd = abs(_bv) if _abs else _bv
-                                    _avd = abs(_av) if _abs else _av
-                                    _dv  = _avd - _bvd
-                                    if _lower is True:
-                                        _g, _bd = _dv < 0, _dv > 0
-                                    elif _lower is False:
-                                        _g, _bd = _dv > 0, _dv < 0
-                                    else:
-                                        _g, _bd = False, False
-                                    if _unit == "×":
-                                        _bs = f"{_bvd:.3f}"
-                                        _as = f"{_avd:.3f}"
-                                        _ds = f"{abs(_dv):.3f}"
-                                    else:
-                                        _bs = f"{_bvd:.2f}%"
-                                        _as = f"{_avd:.2f}%"
-                                        _ds = f"{abs(_dv):.2f}%"
-                                    _rows_html += _risk_row(_ico, _lbl, _bs, _as, _ds, _g, _bd)
+                                for _ri, _rl, _rc, _ru, _ra, _rlo in _rspec:
+                                    _bv = _ww(_rmb, _rc); _av = _ww(_rma, _rc)
+                                    if _bv is None or _av is None: continue
+                                    _bvd = abs(_bv) if _ra else _bv
+                                    _avd = abs(_av) if _ra else _av
+                                    _rdv = _avd - _bvd
+                                    if _rlo is True:   _rg, _rbd = _rdv < 0, _rdv > 0
+                                    elif _rlo is False: _rg, _rbd = _rdv > 0, _rdv < 0
+                                    else:              _rg, _rbd = False, False
+                                    _bs = f"{_bvd:.3f}" if _ru == "×" else f"{_bvd:.2f}%"
+                                    _as = f"{_avd:.3f}" if _ru == "×" else f"{_avd:.2f}%"
+                                    _ds = f"{abs(_rdv):.3f}" if _ru == "×" else f"{abs(_rdv):.2f}%"
+                                    _rh += _rrow(_ri, _rl, _bs, _as, _ds, _rg, _rbd)
+                                    _rmc[_rl] = {'b': _bvd, 'a': _avd, 'd': _rdv, 'improved': _rg, 'worsened': _rbd}
+                                _bvdv = _dvs(_rmb); _avdv = _dvs(_rma)
+                                if _bvdv is not None and _avdv is not None:
+                                    _dvd = _avdv - _bvdv
+                                    _rh += _rrow("💰", "Dollar VaR 95%", f"S${_bvdv:,.0f}", f"S${_avdv:,.0f}", f"S${abs(_dvd):,.0f}", _dvd < 0, _dvd > 0)
+                                    _rmc['Dollar VaR 95%'] = {'b': _bvdv, 'a': _avdv, 'd': _dvd, 'improved': _dvd < 0, 'worsened': _dvd > 0}
 
-                                # Dollar VaR
-                                _bv_dv = _dvar_sum(_rm_b)
-                                _av_dv = _dvar_sum(_rm_a)
-                                if _bv_dv is not None and _av_dv is not None:
-                                    _dd = _av_dv - _bv_dv
-                                    _rows_html += _risk_row("💰", "Dollar VaR 95%",
-                                        f"S${_bv_dv:,.0f}", f"S${_av_dv:,.0f}",
-                                        f"S${abs(_dd):,.0f}", _dd < 0, _dd > 0)
+                    # ── Persist results ───────────────────────────────────────
+                    st.session_state['_sim_res'] = {
+                        'c_aum': _c_aum, 'c_inc': _c_inc, 'c_yield': _c_yield,
+                        'n_aum': _n_aum, 'n_inc': _n_inc, 'n_yield': _n_yield,
+                        'di': _di, 'dy': _dy, 'freed': _freed,
+                        'n_sell': len(sim_sell), 'n_buy': len(sim_buy),
+                        'rows_html': _rh, 'mc': _rmc,
+                    }
 
-                                st.markdown(f"""
-                                <div style='margin-top:18px;border-radius:10px;overflow:hidden;
-                                            border:1px solid #1a3354;
-                                            box-shadow:0 3px 14px rgba(0,0,0,0.35);'>
-                                  <table style='width:100%;border-collapse:collapse;font-size:0.87rem;'>
-                                    <thead>
-                                      <tr style='background:linear-gradient(90deg,#0c1e33,#0f2540);'>
-                                        <th style='padding:11px 14px;text-align:left;color:#6a93b8;
-                                                   font-size:0.73rem;text-transform:uppercase;
-                                                   letter-spacing:0.08em;border-bottom:2px solid #1a3354;
-                                                   width:38%;'>Metric</th>
-                                        <th style='padding:11px 14px;text-align:center;color:#6a93b8;
-                                                   font-size:0.73rem;text-transform:uppercase;
-                                                   letter-spacing:0.08em;border-bottom:2px solid #1a3354;'>Before</th>
-                                        <th style='padding:11px 14px;text-align:center;color:#c8a400;
-                                                   font-size:0.73rem;text-transform:uppercase;
-                                                   letter-spacing:0.08em;border-bottom:2px solid #1a3354;'>After</th>
-                                        <th style='padding:11px 14px;text-align:center;color:#6a93b8;
-                                                   font-size:0.73rem;text-transform:uppercase;
-                                                   letter-spacing:0.08em;border-bottom:2px solid #1a3354;'>Change</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody style='background:#091828;'>
-                                      {_rows_html}
-                                    </tbody>
-                                  </table>
-                                </div>
-                                <p style='margin-top:7px;font-size:0.71rem;color:#4a6a8a;'>
-                                  ▲&nbsp;Green&nbsp;=&nbsp;improved &nbsp;|&nbsp;
-                                  ▼&nbsp;Red&nbsp;=&nbsp;worsened &nbsp;|&nbsp;
-                                  Risk metrics are AUM-weighted averages across ticker-eligible holdings only.
-                                  VaR = est. max 1-day loss at 95% confidence. Max Drawdown and VaR shown as absolute values.
-                                </p>
-                                """, unsafe_allow_html=True)
+            # ── DISPLAY: runs on every render when results exist ──────────────
+            if '_sim_res' in st.session_state:
+                _sr = st.session_state['_sim_res']
+                _c_inc   = _sr['c_inc'];  _c_yield = _sr['c_yield']
+                _n_aum   = _sr['n_aum'];  _n_inc   = _sr['n_inc'];  _n_yield = _sr['n_yield']
+                _di      = _sr['di'];     _dy      = _sr['dy'];     _freed   = _sr['freed']
+                _rh      = _sr['rows_html']; _rmc  = _sr['mc']
+
+                st.success(f"**Simulation Complete:** S${_freed:,.2f} recycled from {_sr['n_sell']} asset{'s' if _sr['n_sell'] != 1 else ''} into {_sr['n_buy']} asset{'s' if _sr['n_buy'] != 1 else ''}.")
+                st.markdown('<div class="hide-delta">', unsafe_allow_html=True)
+                _r1, _r2, _r3 = st.columns(3)
+                _r1.metric("Projected AUM (Excl. Fees)", f"S${_n_aum:,.2f}", "S$0.00 (Neutral)")
+                _r2.metric("Projected Annual Income",    f"S${_n_inc:,.2f}",  f"S${_di:+,.2f} / year")
+                _r3.metric("Projected Portfolio Yield",  f"{_n_yield:.2f}%",  f"{_dy:+.2f}% shift")
+                st.markdown('</div>', unsafe_allow_html=True)
+
+                st.markdown("#### Before vs After Comparison")
+                _fba = go.Figure()
+                _fba.add_trace(go.Bar(name="Current",   x=["Annual Income (SGD)", "Portfolio Yield (%)"],
+                                      y=[_c_inc, _c_yield], marker_color="#95A5A6",
+                                      text=[f"S${_c_inc:,.0f}", f"{_c_yield:.2f}%"], textposition="outside"))
+                _fba.add_trace(go.Bar(name="Projected", x=["Annual Income (SGD)", "Portfolio Yield (%)"],
+                                      y=[_n_inc, _n_yield], marker_color="#27AE60",
+                                      text=[f"S${_n_inc:,.0f}", f"{_n_yield:.2f}%"], textposition="outside"))
+                _fba.update_layout(barmode="group", template="plotly_white", height=360,
+                                   legend=dict(orientation="h", y=1.1), margin=dict(t=30, b=20, l=20, r=20),
+                                   yaxis=dict(showticklabels=False, showgrid=False))
+                st.plotly_chart(_fba, use_container_width=True)
+
+                if _rh:
+                    st.markdown("#### 📊 Quantitative Risk Metrics — Before vs After Rebalance")
+                    st.markdown(f"""
+                    <div style='margin-top:18px;border-radius:10px;overflow:hidden;
+                                border:1px solid #1a3354;box-shadow:0 3px 14px rgba(0,0,0,0.35);'>
+                      <table style='width:100%;border-collapse:collapse;font-size:0.87rem;'>
+                        <thead>
+                          <tr style='background:linear-gradient(90deg,#0c1e33,#0f2540);'>
+                            <th style='padding:11px 14px;text-align:left;color:#6a93b8;font-size:0.73rem;
+                                       text-transform:uppercase;letter-spacing:0.08em;
+                                       border-bottom:2px solid #1a3354;width:38%;'>Metric</th>
+                            <th style='padding:11px 14px;text-align:center;color:#6a93b8;font-size:0.73rem;
+                                       text-transform:uppercase;letter-spacing:0.08em;
+                                       border-bottom:2px solid #1a3354;'>Before</th>
+                            <th style='padding:11px 14px;text-align:center;color:#c8a400;font-size:0.73rem;
+                                       text-transform:uppercase;letter-spacing:0.08em;
+                                       border-bottom:2px solid #1a3354;'>After</th>
+                            <th style='padding:11px 14px;text-align:center;color:#6a93b8;font-size:0.73rem;
+                                       text-transform:uppercase;letter-spacing:0.08em;
+                                       border-bottom:2px solid #1a3354;'>Change</th>
+                          </tr>
+                        </thead>
+                        <tbody style='background:#091828;'>{_rh}</tbody>
+                      </table>
+                    </div>
+                    <p style='margin-top:7px;font-size:0.71rem;color:#4a6a8a;'>
+                      ▲&nbsp;Green&nbsp;=&nbsp;improved &nbsp;|&nbsp;
+                      ▼&nbsp;Red&nbsp;=&nbsp;worsened &nbsp;|&nbsp;
+                      Risk metrics are AUM-weighted averages across ticker-eligible holdings only.
+                      VaR = est. max 1-day loss at 95% confidence. Max Drawdown and VaR shown as absolute values.
+                    </p>
+                    """, unsafe_allow_html=True)
+
+                    # ── Commentary (toggle lives here — outside button block) ──
+                    st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+                    st.markdown("#### 💬 Rebalance Assessment")
+
+                    _n_imp = sum(1 for m in _rmc.values() if m.get('improved', False))
+                    _n_wor = sum(1 for m in _rmc.values() if m.get('worsened', False))
+                    if _di > 0 and _n_imp > _n_wor:
+                        _vd, _vc, _vb = "Strongly Favourable",             "#1E8449", "#1E8449"
+                    elif _di > 0 and _n_imp == _n_wor:
+                        _vd, _vc, _vb = "Moderately Favourable",           "#27AE60", "#27AE60"
+                    elif _di > 0:
+                        _vd, _vc, _vb = "Income Gain — Risk Tradeoff",     "#B7770D", "#E67E22"
+                    elif _n_imp > _n_wor:
+                        _vd, _vc, _vb = "Risk Reduction — Income Sacrifice","#B7770D", "#E67E22"
+                    else:
+                        _vd, _vc, _vb = "Unfavourable",                    "#C0392B", "#C0392B"
+
+                    st.markdown(
+                        f"<div style='background:#f4f8ff;border-left:4px solid {_vb};"
+                        f"border-radius:0 8px 8px 0;padding:8px 16px;margin-bottom:10px;'>"
+                        f"<span style='font-weight:700;color:{_vc};text-transform:uppercase;"
+                        f"font-size:0.78rem;letter-spacing:0.07em;'>Overall Assessment: {_vd}</span>"
+                        f"</div>", unsafe_allow_html=True)
+
+                    if 'sim_commentary_simple' not in st.session_state:
+                        st.session_state['sim_commentary_simple'] = False
+                    _sim_simple = st.toggle(
+                        "Plain-language explanation", key="sim_commentary_simple",
+                        help="Switch between professional commentary and a plain-English summary"
+                    )
+
+                    def _mv(lbl, k): return _rmc.get(lbl, {}).get(k)
+                    _vol_b  = _mv('Ann. Volatility','b'); _vol_a  = _mv('Ann. Volatility','a')
+                    _shr_b  = _mv('Sharpe Ratio','b');   _shr_a  = _mv('Sharpe Ratio','a')
+                    _beta_b = _mv('Beta (vs STI)','b');  _beta_a = _mv('Beta (vs STI)','a')
+                    _var_b  = _mv('Daily VaR 95%','b');  _var_a  = _mv('Daily VaR 95%','a')
+                    _dd_b   = _mv('Max Drawdown','b');   _dd_a   = _mv('Max Drawdown','a')
+                    _dvb    = _mv('Dollar VaR 95%','b'); _dva    = _mv('Dollar VaR 95%','a')
+
+                    if not _sim_simple:
+                        if _di > 0:
+                            _p_inc = (f"The proposed rebalance delivers an incremental <strong>S${abs(_di):,.0f} in annual dividend income</strong> "
+                                      f"(+{abs(_di)/_c_inc*100:.1f}%), lifting portfolio yield from {_c_yield:.2f}% to {_n_yield:.2f}%.")
+                        elif _di < 0:
+                            _p_inc = (f"The rebalance compresses annual income by <strong>S${abs(_di):,.0f}</strong> "
+                                      f"(−{abs(_di)/_c_inc*100:.1f}%), reducing portfolio yield from {_c_yield:.2f}% to {_n_yield:.2f}%.")
+                        else:
+                            _p_inc = f"Annual income and portfolio yield remain broadly unchanged at S${_n_inc:,.0f} ({_n_yield:.2f}%)."
+                        _p_risk = ""
+                        if _vol_b is not None and _vol_a is not None:
+                            _vdiff = _vol_a - _vol_b
+                            _p_risk += (f"Annualised portfolio volatility {'contracts' if _vdiff < 0 else 'expands'} from {_vol_b:.2f}% to {_vol_a:.2f}% ({_vdiff:+.2f}%), "
+                                        f"{'reducing' if _vdiff < 0 else 'increasing'} sensitivity to market fluctuations. ")
+                        if _shr_b is not None and _shr_a is not None:
+                            _sdiff = _shr_a - _shr_b
+                            _p_risk += (f"The Sharpe ratio {'improves' if _sdiff > 0 else 'deteriorates'} from {_shr_b:.3f}× to {_shr_a:.3f}× ({_sdiff:+.3f}), "
+                                        f"{'indicating superior return per unit of risk assumed' if _sdiff > 0 else 'indicating reduced efficiency of return relative to risk carried'}.")
+                        _p_tail = ""
+                        if _var_b is not None and _var_a is not None:
+                            _vrd = _var_a - _var_b
+                            _p_tail += (f"At the 95% confidence level, daily VaR {'narrows' if _vrd < 0 else 'widens'} from {abs(_var_b):.2f}% to {abs(_var_a):.2f}%")
+                            if _dvb is not None and _dva is not None:
+                                _p_tail += f" — equivalent to a {'decrease' if _dva < _dvb else 'increase'} in estimated maximum 1-day loss from S${_dvb:,.0f} to S${_dva:,.0f}"
+                            _p_tail += ". "
+                        if _dd_b is not None and _dd_a is not None:
+                            _ddd = _dd_a - _dd_b
+                            _p_tail += (f"Historical maximum drawdown {'improves' if _ddd < 0 else 'deepens'} from {_dd_b:.2f}% to {_dd_a:.2f}%, "
+                                        f"reflecting {'reduced' if _ddd < 0 else 'elevated'} peak-to-trough downside exposure.")
+                        _p_beta = ""
+                        if _beta_b is not None and _beta_a is not None:
+                            _bdiff = _beta_a - _beta_b
+                            if abs(_bdiff) > 0.02:
+                                _p_beta = (f"Market sensitivity {'decreases' if _bdiff < 0 else 'increases'} from β {_beta_b:.3f}× to β {_beta_a:.3f}×, "
+                                           f"{'reducing' if _bdiff < 0 else 'increasing'} systematic exposure to STI index movements.")
+                        st.markdown(f"""
+<div style='background:rgba(26,82,118,0.05);border-left:4px solid #1a5276;
+            border-radius:0 8px 8px 0;padding:16px 20px;margin:6px 0 4px 0;'>
+  <p style='font-size:0.82rem;font-weight:700;color:#1a5276;margin:0 0 10px 0;
+            letter-spacing:0.05em;text-transform:uppercase;'>Rebalance Risk Commentary</p>
+  <p style='font-size:0.85rem;color:#2c3e50;margin:0 0 9px 0;line-height:1.65;'>{_p_inc}</p>
+  {"<p style='font-size:0.85rem;color:#2c3e50;margin:0 0 9px 0;line-height:1.65;'>" + _p_risk + "</p>" if _p_risk else ""}
+  {"<p style='font-size:0.85rem;color:#2c3e50;margin:0 0 9px 0;line-height:1.65;'>" + _p_tail + "</p>" if _p_tail else ""}
+  {"<p style='font-size:0.85rem;color:#2c3e50;margin:0;line-height:1.65;'>" + _p_beta + "</p>" if _p_beta else ""}
+</div>""", unsafe_allow_html=True)
+
+                    else:
+                        if _di > 0:
+                            _s_inc = (f"After this rebalance, you would earn an extra <strong>S${abs(_di):,.0f} per year</strong> in dividends "
+                                      f"— your yield improves from {_c_yield:.2f}% to {_n_yield:.2f}%.")
+                        elif _di < 0:
+                            _s_inc = (f"This rebalance would <strong>reduce your annual dividends by S${abs(_di):,.0f}</strong> "
+                                      f"and lower your yield from {_c_yield:.2f}% to {_n_yield:.2f}%. "
+                                      f"Consider whether the risk benefit justifies the income sacrifice.")
+                        else:
+                            _s_inc = f"Your dividend income stays roughly the same at S${_n_inc:,.0f} per year."
+                        _s_vol = ""
+                        if _vol_b is not None and _vol_a is not None:
+                            _vd2 = _vol_a - _vol_b
+                            if _vd2 < -0.1:
+                                _s_vol = (f"Your portfolio would become <strong>less volatile</strong> ({_vol_b:.1f}% → {_vol_a:.1f}%) "
+                                          f"— the overall value of your holdings would swing less from day to day.")
+                            elif _vd2 > 0.1:
+                                _s_vol = (f"Your portfolio would become <strong>more volatile</strong> ({_vol_b:.1f}% → {_vol_a:.1f}%) "
+                                          f"— expect larger swings in total portfolio value.")
+                            else:
+                                _s_vol = "Day-to-day price fluctuations would stay roughly the same."
+                        _s_shr = ""
+                        if _shr_b is not None and _shr_a is not None:
+                            _sd2 = _shr_a - _shr_b
+                            if _sd2 > 0.02:
+                                _s_shr = "You would be getting <strong>better returns for the risk you take on</strong> — the new mix is more efficient."
+                            elif _sd2 < -0.02:
+                                _s_shr = "You would be getting <strong>less return for the risk taken</strong> — the new mix is less efficient."
+                        _s_var = ""
+                        if _dvb is not None and _dva is not None:
+                            if _dva < _dvb:
+                                _s_var = (f"On a really bad day, your estimated worst-case loss <strong>drops from S${_dvb:,.0f} to S${_dva:,.0f}</strong> "
+                                          f"— meaningful protection against tail events.")
+                            elif _dva > _dvb:
+                                _s_var = (f"On a really bad day, your estimated worst-case loss could <strong>rise from S${_dvb:,.0f} to S${_dva:,.0f}</strong> "
+                                          f"— something to weigh carefully before committing.")
+                        _s_beta = ""
+                        if _beta_b is not None and _beta_a is not None:
+                            _bd2 = _beta_a - _beta_b
+                            if _bd2 < -0.05:
+                                _s_beta = "Your portfolio would be <strong>less tied to the Singapore market</strong> — when the STI falls, your losses may be cushioned slightly."
+                            elif _bd2 > 0.05:
+                                _s_beta = "Your portfolio would be <strong>more tied to the Singapore market</strong> — bigger gains when it rises, but steeper drops when it falls."
+                        _s_vd = {
+                            "Strongly Favourable":              "<strong>Bottom line:</strong> This looks like a solid rebalance — you earn more income and take on less risk. Worth seriously considering.",
+                            "Moderately Favourable":            "<strong>Bottom line:</strong> This rebalance looks broadly positive — income improves and the risk picture is roughly neutral.",
+                            "Income Gain — Risk Tradeoff":      "<strong>Bottom line:</strong> You would earn more, but at the cost of slightly higher risk. Whether that's acceptable depends on your personal risk tolerance.",
+                            "Risk Reduction — Income Sacrifice":"<strong>Bottom line:</strong> You would take on less risk, but give up some income. A sensible trade if capital preservation is your priority.",
+                        }.get(_vd, "<strong>Bottom line:</strong> This rebalance does not offer a clear benefit on income or risk. Consider adjusting the target selection.")
+                        _pp = [p for p in [_s_inc, _s_vol, _s_shr, _s_var, _s_beta, _s_vd] if p]
+                        st.markdown(f"""
+<div style='background:rgba(39,174,96,0.05);border-left:4px solid #27ae60;
+            border-radius:0 8px 8px 0;padding:16px 20px;margin:6px 0 4px 0;'>
+  <p style='font-size:0.82rem;font-weight:700;color:#1e8449;margin:0 0 10px 0;
+            letter-spacing:0.05em;text-transform:uppercase;'>Rebalance Assessment — Plain English</p>
+  {"".join(f"<p style='font-size:0.85rem;color:#2c3e50;margin:0 0 9px 0;line-height:1.65;'>{p}</p>" for p in _pp)}
+</div>""", unsafe_allow_html=True)
 
             # ── SENTIMENT RADAR ──────────────────────
             st.markdown("---")
